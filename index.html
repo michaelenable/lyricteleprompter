@@ -693,6 +693,7 @@ let state = {
 // Performance mode tracking — avoids unnecessary DOM work
 let lastRenderedPerfLine = -1;
 let perfDomReady = false;
+let perfScrollReady = false; // true once initial scroll position is set and transitions re-enabled
 
 // Init song data
 SONGS.forEach(s => {
@@ -956,9 +957,11 @@ function stopSource(ad) {
   }
 }
 
-function startPlayback(ad, offset) {
+async function startPlayback(ad, offset) {
   const ctx = getCtx();
-  if (ctx.state === 'suspended') ctx.resume();
+  // MUST await resume — on iOS, ctx.currentTime is frozen until resume completes.
+  // Setting startTime from a frozen clock shifts ALL timings by the suspend duration.
+  if (ctx.state === 'suspended') await ctx.resume();
   stopSource(ad);
 
   const gen = ++playGeneration;
@@ -997,7 +1000,7 @@ function startPlayback(ad, offset) {
   };
 }
 
-function togglePlay() {
+async function togglePlay() {
   unlockAudio();
   const ad = getAudio();
   const hasAudio = !!ad;
@@ -1017,14 +1020,14 @@ function togglePlay() {
     const offset = hasAudio ? (ad.pauseOffset || 0) : state.timerOffset;
 
     if (hasAudio) {
-      const ctx = getCtx();
-      if (ctx.state === 'suspended') ctx.resume();
+      // Await startPlayback — it ensures ctx.resume() completes before
+      // setting startTime, preventing stale clock on iOS
       if (offset >= ad.duration) {
         ad.pauseOffset = 0;
         state.timerOffset = 0;
-        startPlayback(ad, 0);
+        await startPlayback(ad, 0);
       } else {
-        startPlayback(ad, offset);
+        await startPlayback(ad, offset);
       }
     }
 
@@ -1159,6 +1162,7 @@ function updatePerfDisplay() {
 }
 
 function scrollPerfTo(lineIdx, lineEls) {
+  if (!perfScrollReady) return; // Initial positioning not yet done
   const scroll = document.getElementById('perf-scroll');
   const container = document.getElementById('perf-lyrics-area');
   if (!scroll || !container || !lineEls || !lineEls[lineIdx]) return;
@@ -1174,20 +1178,21 @@ function scrollPerfTo(lineIdx, lineEls) {
   });
 }
 
-// Audio time tracker (runs continuously when audio exists)
+// Master display loop — runs every frame, updates UI for audio OR standalone timer
 function audioTick() {
   requestAnimationFrame(audioTick);
 
   const ad = getAudio();
-  if (!ad) return;
 
-  if (ad.playing) {
+  // Update currentTime from audio clock when audio is playing
+  if (ad && ad.playing) {
     const ctx = getCtx();
     state.currentTime = ctx.currentTime - ad.startTime;
     if (state.currentTime > ad.duration) state.currentTime = ad.duration;
     state.duration = ad.duration;
   }
 
+  // Always update displays (timer, progress bar) — works for both audio and standalone timer
   updateTimeDisplays();
   if (state.mode === 'perform') updatePerfDisplay();
 }
@@ -1217,12 +1222,14 @@ function selectSong(id) {
   }
 
   perfDomReady = false;
+  perfScrollReady = false;
   render();
 }
 
 function setMode(m) {
   state.mode = m;
   perfDomReady = false;
+  perfScrollReady = false;
   lastRenderedPerfLine = -1;
 
   if (m === 'rehearsal') {
@@ -1308,6 +1315,7 @@ function render() {
     updatePerfControls();
 
     // Set initial scroll position WITHOUT transition (instant snap to line 0)
+    perfScrollReady = false;
     const scroll = document.getElementById('perf-scroll');
     const container = document.getElementById('perf-lyrics-area');
     if (scroll && container) {
@@ -1321,14 +1329,20 @@ function render() {
           // Re-enable transition after initial position is painted
           requestAnimationFrame(() => {
             scroll.style.transition = '';
+            perfScrollReady = true; // Now scrollPerfTo can use CSS transitions
           });
         });
+      } else {
+        perfScrollReady = true;
       }
+    } else {
+      perfScrollReady = true;
     }
     return;
   }
 
   perfDomReady = false;
+  perfScrollReady = false;
 
   app.innerHTML = `
     <div class="app">
@@ -1514,10 +1528,16 @@ function renderRehearsal() {
   const current = lines[state.rehearsalLine] || '';
   const next = lines[state.rehearsalLine + 1] || '';
 
+  // Show last recorded timestamp so user can verify accuracy
+  const lastTapTime = state.rehearsalLine > 0 && song.timings[state.rehearsalLine - 1] != null
+    ? formatTime(song.timings[state.rehearsalLine - 1])
+    : null;
+
   return `
     <div class="rehearsal-view">
       <div class="rehearsal-instruction">Play the track, then tap each line as it comes</div>
       <div class="rehearsal-progress">Line ${state.rehearsalLine + 1} of ${lines.length}</div>
+      ${lastTapTime ? `<div style="font-family:'Space Mono',monospace; font-size:12px; color:var(--green); margin-bottom:6px;">Last tap: ${lastTapTime}</div>` : ''}
       <div class="rehearsal-current">${escHtml(current)}</div>
       <div class="rehearsal-next">${escHtml(next)}</div>
       <button class="tap-btn" id="tap-btn">${state.playing ? 'TAP' : 'Press play first'}</button>
@@ -1827,6 +1847,7 @@ function attachPerformEvents() {
       if (ad2) { state.duration = ad2.duration; ad2.pauseOffset = 0; }
       else { state.duration = 0; }
       perfDomReady = false;
+  perfScrollReady = false;
       render();
     }
   });
