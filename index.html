@@ -1128,7 +1128,7 @@ function updatePerfDisplay() {
   if (!song.timings || !song.timings.length) return;
 
   const t = state.currentTime;
-  let line = 0;
+  let line = -1; // -1 = before first timing, no line active yet
   for (let i = song.timings.length - 1; i >= 0; i--) {
     if (t >= song.timings[i]) {
       line = i;
@@ -1143,7 +1143,8 @@ function updatePerfDisplay() {
   const lineEls = document.querySelectorAll('#perf-scroll .perf-line');
   const count = lineEls.length;
   for (let i = 0; i < count; i++) {
-    const dist = i - line;
+    // When line is -1 (before first timing), all lines are "upcoming"
+    const dist = line === -1 ? (i + 1) : (i - line);
     let cls = 'perf-line';
     if (lineEls[i].dataset.section === '1') cls += ' section-marker';
 
@@ -1158,7 +1159,7 @@ function updatePerfDisplay() {
     lineEls[i].className = cls;
   }
 
-  scrollPerfTo(line, lineEls);
+  if (line >= 0) scrollPerfTo(line, lineEls);
 }
 
 function scrollPerfTo(lineIdx, lineEls) {
@@ -1262,14 +1263,8 @@ function rehearsalTap() {
   if (ad.playing) {
     const ctx = getCtx();
     tapTime = ctx.currentTime - ad.startTime;
-    console.log('[TAP] ctx.currentTime=' + ctx.currentTime.toFixed(3)
-      + ' ad.startTime=' + ad.startTime.toFixed(3)
-      + ' tapTime=' + tapTime.toFixed(3)
-      + ' state.currentTime=' + state.currentTime.toFixed(3)
-      + ' display_delta=' + (tapTime - state.currentTime).toFixed(3));
   } else {
     tapTime = state.currentTime;
-    console.log('[TAP] paused, using state.currentTime=' + tapTime.toFixed(3));
   }
 
   const song = getSong();
@@ -1316,7 +1311,7 @@ function render() {
   if (state.mode === 'perform') {
     app.innerHTML = renderPerformance();
     perfDomReady = true;
-    lastRenderedPerfLine = 0; // Match the initial classes set in renderPerformance
+    lastRenderedPerfLine = -1; // No line active until first timing is reached
     attachPerformEvents();
     updatePerfControls();
 
@@ -1577,13 +1572,12 @@ function renderPerformance() {
 
   const linesHtml = lines.map((line, i) => {
     const isSection = /^\[.*\]$/.test(line.trim());
-    // Set correct initial classes so first paint is positioned right
+    // Before first timing: no line is "current" — all are upcoming
     let cls = 'perf-line';
     if (isSection) cls += ' section-marker';
-    if (i === 0) cls += ' current';
-    else if (i === 1) cls += ' next';
-    else if (i === 2) cls += ' next-2';
-    else if (i <= 5) cls += ' far';
+    if (i === 0) cls += ' next';
+    else if (i === 1) cls += ' next-2';
+    else if (i <= 4) cls += ' far';
     else cls += ' distant-far';
     return `<div class="${cls}" data-idx="${i}" data-section="${isSection ? '1' : '0'}">${escHtml(line)}</div>`;
   }).join('');
