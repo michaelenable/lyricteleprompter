@@ -1,4 +1,4 @@
-const CACHE_NAME = 'teleprompter-v1';
+const CACHE_NAME = 'teleprompter-v2';
 const ASSETS = [
   '/',
   '/index.html',
@@ -27,9 +27,11 @@ self.addEventListener('activate', (e) => {
   self.clients.claim();
 });
 
-// Fetch — cache-first for app shell, network-first for everything else
+// Fetch strategy:
+// - index.html / root: NETWORK-FIRST (always get latest code)
+// - Fonts: cache-on-first-use
+// - Everything else: cache-first with network fallback
 self.addEventListener('fetch', (e) => {
-  // Only handle same-origin GET requests
   if (e.request.method !== 'GET') return;
   if (!e.request.url.startsWith(self.location.origin)) return;
 
@@ -49,12 +51,26 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // App shell — cache first, fallback to network
+  // HTML pages — network-first so code updates deploy immediately
+  const url = new URL(e.request.url);
+  if (e.request.destination === 'document' || url.pathname === '/' || url.pathname.endsWith('.html')) {
+    e.respondWith(
+      fetch(e.request).then((response) => {
+        if (response.status === 200) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(e.request, clone));
+        }
+        return response;
+      }).catch(() => caches.match(e.request))
+    );
+    return;
+  }
+
+  // Everything else — cache-first
   e.respondWith(
     caches.match(e.request).then((cached) => {
       if (cached) return cached;
       return fetch(e.request).then((response) => {
-        // Cache successful responses
         if (response.status === 200) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(e.request, clone));
@@ -62,7 +78,6 @@ self.addEventListener('fetch', (e) => {
         return response;
       });
     }).catch(() => {
-      // Offline fallback
       if (e.request.destination === 'document') {
         return caches.match('/index.html');
       }
