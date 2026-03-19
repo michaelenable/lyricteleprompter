@@ -421,15 +421,13 @@
     flex-direction: column;
   }
 
-  /* Cursor auto-hide */
+  /* Cursor auto-hide — timer always visible, only controls hide */
   .performance-view:not(.show-cursor) { cursor: none; }
-  .performance-view:not(.show-cursor) .perf-controls,
-  .performance-view:not(.show-cursor) .perf-timer {
+  .performance-view:not(.show-cursor) .perf-controls {
     opacity: 0 !important;
     pointer-events: none;
   }
-  .performance-view.show-cursor .perf-controls,
-  .performance-view.show-cursor .perf-timer {
+  .performance-view.show-cursor .perf-controls {
     opacity: 1;
     pointer-events: auto;
   }
@@ -1129,7 +1127,7 @@ function updatePerfDisplay() {
   const t = state.currentTime;
   let line = 0;
   for (let i = song.timings.length - 1; i >= 0; i--) {
-    if (t >= song.timings[i] - 0.3) {
+    if (t >= song.timings[i]) {
       line = i;
       break;
     }
@@ -1252,14 +1250,23 @@ function rehearsalTap() {
   const ad = getAudio();
   if (!ad || !lines.length) return;
 
+  // Read fresh time directly from AudioContext (not stale state.currentTime)
+  let tapTime;
+  if (ad.playing) {
+    const ctx = getCtx();
+    tapTime = ctx.currentTime - ad.startTime;
+  } else {
+    tapTime = state.currentTime;
+  }
+
   const song = getSong();
   if (!song.timings) song.timings = [];
 
-  song.timings[state.rehearsalLine] = state.currentTime;
+  song.timings[state.rehearsalLine] = tapTime;
   state.rehearsalLine++;
+  saveState(); // Save after every tap so progress isn't lost
 
   if (state.rehearsalLine >= lines.length) {
-    saveState();
     state.rehearsalLine = 0;
     playGeneration++;
     stopSource(ad);
@@ -1723,9 +1730,9 @@ function attachEvents() {
       unlockAudio();
       if (state.playing) rehearsalTap();
     });
-    // Touch support — prevent double-fire
-    tapBtn.addEventListener('touchend', (e) => {
-      e.preventDefault();
+    // Touch support — touchstart for lowest latency (finger down = tap)
+    tapBtn.addEventListener('touchstart', (e) => {
+      e.preventDefault(); // Prevents click from also firing
       unlockAudio();
       if (state.playing) rehearsalTap();
     });
