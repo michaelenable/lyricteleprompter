@@ -1,0 +1,1843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Lyric Teleprompter</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0a0a0f">
+
+<!-- iOS PWA -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Teleprompter">
+<link rel="apple-touch-icon" href="icons/icon-192.svg">
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-panel: #12121a;
+    --bg-card: #1a1a26;
+    --bg-hover: #222233;
+    --border: #2a2a3a;
+    --text: #e0e0e8;
+    --text-dim: #6a6a7a;
+    --text-muted: #444458;
+    --accent: #ff6b35;
+    --accent-glow: rgba(255, 107, 53, 0.3);
+    --green: #4ade80;
+    --green-dim: rgba(74, 222, 128, 0.15);
+    --red: #f87171;
+    --blue: #60a5fa;
+    /* Safe area insets for notched devices */
+    --sai-top: env(safe-area-inset-top, 0px);
+    --sai-bottom: env(safe-area-inset-bottom, 0px);
+    --sai-left: env(safe-area-inset-left, 0px);
+    --sai-right: env(safe-area-inset-right, 0px);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .app { display: flex; height: 100vh; height: 100dvh; }
+
+  /* ============ Sidebar ============ */
+  .sidebar {
+    width: 280px;
+    min-width: 280px;
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding-top: var(--sai-top);
+    padding-left: var(--sai-left);
+  }
+
+  .sidebar-header {
+    padding: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-header h1 {
+    font-family: 'Space Mono', monospace;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    color: var(--accent);
+    margin-bottom: 2px;
+  }
+
+  .sidebar-header .sub {
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+  }
+
+  .song-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .song-item {
+    padding: 12px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: background 0.15s;
+    font-size: 13px;
+  }
+
+  .song-item:hover { background: var(--bg-hover); }
+  .song-item.active { background: var(--bg-card); border: 1px solid var(--border); }
+
+  .song-num {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    min-width: 18px;
+  }
+
+  .song-name { flex: 1; }
+
+  .song-status { display: flex; gap: 4px; }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-muted);
+  }
+
+  .status-dot.has-lyrics { background: var(--green); }
+  .status-dot.has-audio { background: var(--blue); }
+  .status-dot.has-timing { background: var(--accent); }
+
+  .sidebar-footer {
+    padding: 12px;
+    border-top: 1px solid var(--border);
+    padding-bottom: calc(12px + var(--sai-bottom));
+  }
+
+  .sidebar-footer .legend {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+
+  .sidebar-footer .legend .status-dot { width: 5px; height: 5px; }
+
+  /* ============ Main area ============ */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding-top: var(--sai-top);
+    padding-right: var(--sai-right);
+  }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-panel);
+  }
+
+  .mode-tabs {
+    display: flex;
+    gap: 2px;
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 3px;
+  }
+
+  .mode-tab {
+    padding: 6px 16px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    transition: all 0.15s;
+  }
+
+  .mode-tab.active { background: var(--bg-card); color: var(--text); }
+  .mode-tab:hover:not(.active) { color: var(--text); }
+
+  .toolbar-spacer { flex: 1; }
+
+  .btn {
+    padding: 7px 16px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text);
+    transition: all 0.15s;
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  .btn:hover { background: var(--bg-hover); border-color: var(--text-dim); }
+
+  .btn-accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-accent:hover { opacity: 0.85; background: var(--accent); }
+  .btn-green { background: var(--green); border-color: var(--green); color: #000; }
+  .btn-red { background: var(--red); border-color: var(--red); color: #000; }
+
+  .content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ============ Setup mode ============ */
+  .setup-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    max-width: 900px;
+  }
+
+  .setup-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+
+  .setup-card h3 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    margin-bottom: 14px;
+  }
+
+  .setup-card.full { grid-column: 1 / -1; }
+
+  .lyrics-textarea {
+    width: 100%;
+    min-height: 300px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    line-height: 1.8;
+    padding: 14px;
+    resize: vertical;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  .lyrics-textarea:focus { outline: none; border-color: var(--accent); }
+  .lyrics-textarea::placeholder { color: var(--text-muted); }
+
+  .file-drop {
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    padding: 30px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .file-drop:hover { border-color: var(--accent); background: rgba(255,107,53,0.03); }
+  .file-drop .icon { font-size: 28px; margin-bottom: 8px; }
+  .file-drop .label { font-size: 13px; color: var(--text-dim); }
+
+  .file-loaded {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    background: var(--green-dim);
+    border-radius: 8px;
+    font-size: 13px;
+  }
+
+  .file-loaded .fname { flex: 1; color: var(--green); font-weight: 500; }
+
+  /* ============ Audio bar ============ */
+  .audio-bar {
+    padding: 12px 20px;
+    padding-bottom: calc(12px + var(--sai-bottom));
+    border-top: 1px solid var(--border);
+    background: var(--bg-panel);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .audio-bar .play-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .audio-bar .play-btn:hover { opacity: 0.85; }
+
+  .progress-wrap {
+    flex: 1;
+    height: 6px;
+    background: var(--bg);
+    border-radius: 3px;
+    cursor: pointer;
+    position: relative;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.1s linear;
+  }
+
+  .time-display {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    min-width: 90px;
+    text-align: right;
+  }
+
+  /* ============ Rehearsal mode ============ */
+  .rehearsal-view {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100%;
+    padding: 40px 20px;
+  }
+
+  .rehearsal-instruction {
+    font-size: 12px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 12px;
+  }
+
+  .rehearsal-current {
+    font-size: 28px;
+    font-weight: 700;
+    text-align: center;
+    max-width: 700px;
+    line-height: 1.5;
+    margin-bottom: 8px;
+    min-height: 90px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .rehearsal-next {
+    font-size: 16px;
+    color: var(--text-dim);
+    text-align: center;
+    max-width: 600px;
+    min-height: 30px;
+    margin-bottom: 30px;
+  }
+
+  .rehearsal-progress {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+  }
+
+  .tap-btn {
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    border: 3px solid var(--accent);
+    background: rgba(255,107,53,0.08);
+    color: var(--accent);
+    font-family: 'Space Mono', monospace;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.1s;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    /* Better touch target */
+    touch-action: manipulation;
+  }
+
+  .tap-btn:hover { background: rgba(255,107,53,0.15); }
+  .tap-btn:active { transform: scale(0.95); background: rgba(255,107,53,0.25); }
+
+  /* ==============================================
+     PERFORMANCE MODE - smooth scroll architecture
+     ============================================== */
+  .performance-view {
+    position: fixed;
+    inset: 0;
+    background: #000;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Cursor auto-hide */
+  .performance-view:not(.show-cursor) { cursor: none; }
+  .performance-view:not(.show-cursor) .perf-controls,
+  .performance-view:not(.show-cursor) .perf-timer {
+    opacity: 0 !important;
+    pointer-events: none;
+  }
+  .performance-view.show-cursor .perf-controls,
+  .performance-view.show-cursor .perf-timer {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .perf-timer {
+    position: absolute;
+    top: calc(20px + var(--sai-top));
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'Space Mono', monospace;
+    font-size: 48px;
+    font-weight: 700;
+    z-index: 10;
+    letter-spacing: 4px;
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+  }
+
+  .perf-lyrics {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* Scroll container — holds ALL lines, moved via CSS transform */
+  .perf-scroll {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform;
+  }
+
+  /* Each lyric line — smooth transitions between states */
+  .perf-line {
+    text-align: center;
+    max-width: 85vw;
+    width: 100%;
+    padding: 8px 20px;
+    line-height: 1.35;
+    white-space: normal;
+    word-wrap: break-word;
+    transition:
+      font-size 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+      color 0.4s ease-out,
+      opacity 0.4s ease-out,
+      text-shadow 0.4s ease-out,
+      transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+    transform-origin: center center;
+  }
+
+  .perf-line.distant-past {
+    font-size: 16px;
+    color: #1a1a1a;
+    opacity: 0;
+    transform: scale(0.85);
+  }
+
+  .perf-line.past {
+    font-size: 18px;
+    color: #333;
+    opacity: 0.35;
+    transform: scale(0.9);
+  }
+
+  .perf-line.current {
+    font-size: 42px;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 0 0 60px var(--accent-glow), 0 0 120px rgba(255, 107, 53, 0.15);
+    padding: 18px 20px;
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .perf-line.next {
+    font-size: 28px;
+    color: #777;
+    opacity: 0.85;
+    transform: scale(0.95);
+  }
+
+  .perf-line.next-2 {
+    font-size: 22px;
+    color: #555;
+    opacity: 0.6;
+    transform: scale(0.92);
+  }
+
+  .perf-line.far {
+    font-size: 18px;
+    color: #2a2a2a;
+    opacity: 0.3;
+    transform: scale(0.88);
+  }
+
+  .perf-line.distant-far {
+    font-size: 16px;
+    color: #1a1a1a;
+    opacity: 0;
+    transform: scale(0.85);
+  }
+
+  /* Section markers like [Chorus] */
+  .perf-line.section-marker.current {
+    color: var(--accent);
+    font-size: 28px;
+    text-shadow: 0 0 40px var(--accent-glow);
+  }
+
+  .perf-line.section-marker:not(.current) {
+    font-style: italic;
+  }
+
+  /* Controls bar */
+  .perf-controls {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(transparent, rgba(0,0,0,0.95) 30%);
+    padding: 30px 24px 16px;
+    padding-bottom: calc(16px + var(--sai-bottom));
+    padding-left: calc(24px + var(--sai-left));
+    padding-right: calc(24px + var(--sai-right));
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: opacity 0.4s ease;
+  }
+
+  .perf-status {
+    font-size: 14px;
+    color: var(--text-muted);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    text-align: center;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+  }
+
+  /* ============ Responsive: iPad/tablet ============ */
+  @media (max-width: 768px) {
+    .sidebar { width: 220px; min-width: 220px; }
+    .setup-grid { grid-template-columns: 1fr; }
+    .setup-card.full { grid-column: 1; }
+    .perf-line.current { font-size: 36px; }
+    .perf-line.next { font-size: 24px; }
+    .perf-timer { font-size: 40px; }
+  }
+
+  @media (max-width: 600px) {
+    .app { flex-direction: column; }
+    .sidebar {
+      width: 100%;
+      min-width: 100%;
+      max-height: 180px;
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-header { padding: 12px 16px; }
+    .sidebar-header h1 { font-size: 12px; }
+    .song-list { padding: 4px 8px; }
+    .song-item { padding: 8px 10px; font-size: 12px; }
+    .sidebar-footer { display: none; }
+    .perf-line.current { font-size: 30px; }
+    .perf-line.next { font-size: 20px; }
+    .perf-timer { font-size: 32px; }
+  }
+
+  /* ============ Scrollbar ============ */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted);
+    font-size: 14px;
+    gap: 8px;
+  }
+
+  .clear-timing {
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--red);
+    cursor: pointer;
+    text-decoration: underline;
+    background: none;
+    border: none;
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  .help-text {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 8px;
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script>
+// ==============================
+// Register service worker
+// ==============================
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+const SONGS = [
+  { id: 1, name: 'Blinding Lights' },
+  { id: 2, name: "Can't Take My Eyes Off You" },
+  { id: 3, name: 'Dancing In The Dark' },
+  { id: 4, name: 'Freedom 90' },
+  { id: 5, name: 'Home' },
+  { id: 6, name: 'Moves Like Jagger' },
+  { id: 7, name: 'Sway' },
+  { id: 8, name: 'Uptown Funk' },
+  { id: 9, name: 'Viva La Vida' },
+];
+
+// ==============================
+// State
+// ==============================
+let state = {
+  activeSong: 1,
+  mode: 'setup', // setup, rehearsal, perform
+  songs: {},
+  audioElements: {},
+  playing: false,
+  currentTime: 0,
+  duration: 0,
+  rehearsalLine: 0,
+  performLine: 0,
+  showCursor: true,
+  cursorTimeout: null,
+  modalMode: null,
+  modalData: '',
+  timerStart: 0,
+  timerOffset: 0,
+};
+
+// Performance mode tracking — avoids unnecessary DOM work
+let lastRenderedPerfLine = -1;
+let perfDomReady = false;
+
+// Init song data
+SONGS.forEach(s => {
+  state.songs[s.id] = { lyrics: '', timings: [], audioFile: null };
+});
+
+// ==============================
+// Storage — localStorage (works offline, no external deps)
+// ==============================
+function loadState() {
+  try {
+    const raw = localStorage.getItem('teleprompter-data');
+    if (raw) {
+      const saved = JSON.parse(raw);
+      let restored = 0;
+      Object.keys(saved).forEach(id => {
+        if (state.songs[id]) {
+          state.songs[id].lyrics = saved[id].lyrics || '';
+          state.songs[id].timings = saved[id].timings || [];
+          state.songs[id].audioFile = saved[id].audioFile || null;
+          if (saved[id].lyrics || (saved[id].timings && saved[id].timings.length)) restored++;
+        }
+      });
+      console.log('Teleprompter: restored ' + restored + ' songs');
+    }
+  } catch(e) {
+    console.error('Load error:', e);
+  }
+}
+
+function saveState() {
+  try {
+    const data = {};
+    Object.keys(state.songs).forEach(id => {
+      data[id] = {
+        lyrics: state.songs[id].lyrics,
+        timings: state.songs[id].timings,
+        audioFile: state.songs[id].audioFile || null
+      };
+    });
+    localStorage.setItem('teleprompter-data', JSON.stringify(data));
+  } catch(e) {
+    console.error('Save error:', e);
+  }
+}
+
+// ==============================
+// Export / Import
+// ==============================
+function exportData() {
+  const data = {};
+  SONGS.forEach(s => {
+    const song = state.songs[s.id];
+    if (song.lyrics || (song.timings && song.timings.length)) {
+      data[s.id] = { name: s.name, lyrics: song.lyrics, timings: song.timings, audioFile: song.audioFile };
+    }
+  });
+  state.modalMode = 'export';
+  state.modalData = JSON.stringify(data, null, 2);
+  render();
+}
+
+function importData(json) {
+  try {
+    const data = JSON.parse(json);
+    Object.keys(data).forEach(id => {
+      if (state.songs[id]) {
+        state.songs[id].lyrics = data[id].lyrics || '';
+        state.songs[id].timings = data[id].timings || [];
+        state.songs[id].audioFile = data[id].audioFile || null;
+      }
+    });
+    saveState();
+    state.modalMode = null;
+    state.modalData = '';
+    render();
+  } catch(err) {
+    alert('Invalid JSON. Paste the exact text from a previous export.');
+  }
+}
+
+function showImportModal() {
+  state.modalMode = 'import';
+  state.modalData = '';
+  render();
+}
+
+function closeModal() {
+  state.modalMode = null;
+  state.modalData = '';
+  render();
+}
+
+function renderModal() {
+  if (!state.modalMode) return '';
+  const isExport = state.modalMode === 'export';
+  return `
+    <div style="position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:2000;display:flex;align-items:center;justify-content:center;" id="modal-overlay">
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:600px;width:90%;max-height:80vh;display:flex;flex-direction:column;gap:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <h3 style="font-size:14px;text-transform:uppercase;letter-spacing:1.5px;color:var(--accent);">
+            ${isExport ? 'Export' : 'Import'}
+          </h3>
+          <button class="btn" style="padding:4px 10px;font-size:11px;" id="modal-close">Close</button>
+        </div>
+        <textarea id="modal-textarea" style="
+          width:100%;min-height:300px;background:var(--bg);border:1px solid var(--border);
+          border-radius:8px;color:var(--text);font-family:'Space Mono',monospace;font-size:11px;
+          line-height:1.6;padding:12px;resize:vertical;-webkit-user-select:text;user-select:text;
+        " ${isExport ? 'readonly' : ''} placeholder="${isExport ? '' : 'Paste your exported JSON here...'}">${isExport ? escHtml(state.modalData) : ''}</textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          ${isExport ? `<button class="btn btn-accent" id="modal-copy">Copy to Clipboard</button>`
+                     : `<button class="btn btn-accent" id="modal-import">Import</button>`}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ==============================
+// Standalone timer (no audio)
+// ==============================
+let perfTimer = null;
+
+function startTimer() {
+  state.timerStart = performance.now();
+  state.playing = true;
+  perfTimer = requestAnimationFrame(tickTimer);
+}
+
+function stopTimer() {
+  state.timerOffset += (performance.now() - state.timerStart) / 1000;
+  state.playing = false;
+  if (perfTimer) cancelAnimationFrame(perfTimer);
+  perfTimer = null;
+}
+
+function resetTimer() {
+  state.timerOffset = 0;
+  state.timerStart = 0;
+  state.currentTime = 0;
+  state.playing = false;
+  state.performLine = 0;
+  if (perfTimer) cancelAnimationFrame(perfTimer);
+  perfTimer = null;
+}
+
+function tickTimer() {
+  if (!state.playing) return;
+  state.currentTime = state.timerOffset + (performance.now() - state.timerStart) / 1000;
+
+  const song = getSong();
+  if (song.timings && song.timings.length) {
+    state.duration = song.timings[song.timings.length - 1] + 5;
+  }
+
+  updateTimeDisplays();
+  if (state.mode === 'perform') updatePerfDisplay();
+
+  perfTimer = requestAnimationFrame(tickTimer);
+}
+
+// Unified play/pause for perform mode
+function performTogglePlay() {
+  // iOS: unlock AudioContext on first user gesture
+  unlockAudio();
+
+  const ad = getAudio();
+  if (ad) {
+    togglePlay();
+  } else if (state.playing) {
+    stopTimer();
+    updatePerfControls();
+  } else {
+    startTimer();
+    updatePerfControls();
+  }
+}
+
+function getSong() { return state.songs[state.activeSong]; }
+function getLines() { return (getSong().lyrics || '').split('\n').filter(l => l.trim()); }
+
+function formatTime(s) {
+  if (!s || isNaN(s) || s < 0) return '0:00';
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return m + ':' + (sec < 10 ? '0' : '') + sec;
+}
+
+// ==============================
+// Audio engine — Web Audio API
+// ==============================
+let audioCtx = null;
+let playGeneration = 0;
+let audioUnlocked = false;
+
+function getCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+// iOS requires AudioContext to be created/resumed inside a user gesture
+function unlockAudio() {
+  if (audioUnlocked) return;
+  const ctx = getCtx();
+  if (ctx.state === 'suspended') {
+    ctx.resume();
+  }
+  // Create and play a silent buffer to fully unlock
+  const buf = ctx.createBuffer(1, 1, 22050);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(ctx.destination);
+  src.start(0);
+  audioUnlocked = true;
+}
+
+const audioData = {};
+
+function getAudio() {
+  return audioData[state.activeSong];
+}
+
+function loadAudioFile(songId, file) {
+  unlockAudio();
+  state.songs[songId].audioFile = file.name;
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const ctx = getCtx();
+    ctx.decodeAudioData(e.target.result, function(buffer) {
+      audioData[songId] = {
+        buffer: buffer,
+        source: null,
+        gainNode: null,
+        startTime: 0,
+        pauseOffset: 0,
+        duration: buffer.duration,
+        playing: false
+      };
+      if (songId === state.activeSong) {
+        state.duration = buffer.duration;
+        state.currentTime = 0;
+      }
+      state.audioElements[songId] = true;
+      saveState();
+      render();
+    }, function(err) {
+      console.error('Decode error:', err);
+    });
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function stopSource(ad) {
+  if (ad && ad.source) {
+    ad.source.onended = null;
+    try { ad.source.stop(); } catch(e) {}
+    try { ad.source.disconnect(); } catch(e) {}
+    ad.source = null;
+  }
+}
+
+function startPlayback(ad, offset) {
+  const ctx = getCtx();
+  if (ctx.state === 'suspended') ctx.resume();
+  stopSource(ad);
+
+  const gen = ++playGeneration;
+  const source = ctx.createBufferSource();
+  source.buffer = ad.buffer;
+  const gain = ctx.createGain();
+  source.connect(gain);
+  gain.connect(ctx.destination);
+
+  source.start(0, offset);
+  ad.source = source;
+  ad.gainNode = gain;
+  ad.startTime = ctx.currentTime - offset;
+  ad.playing = true;
+
+  source.onended = function() {
+    if (gen !== playGeneration) return;
+    if (!ad.playing) return;
+
+    ad.playing = false;
+    ad.pauseOffset = 0;
+    state.playing = false;
+    state.currentTime = ad.duration;
+
+    if (state.mode === 'perform') {
+      const idx = SONGS.findIndex(s => s.id === state.activeSong);
+      if (idx < SONGS.length - 1) {
+        selectSong(SONGS[idx + 1].id);
+        setTimeout(() => performTogglePlay(), 500);
+      } else {
+        updatePerfControls();
+      }
+    } else {
+      render();
+    }
+  };
+}
+
+function togglePlay() {
+  unlockAudio();
+  const ad = getAudio();
+  const hasAudio = !!ad;
+
+  if (state.playing) {
+    if (hasAudio && ad.playing) {
+      const ctx = getCtx();
+      ad.pauseOffset = ctx.currentTime - ad.startTime;
+      if (ad.pauseOffset > ad.duration) ad.pauseOffset = ad.duration;
+      ad.playing = false;
+      playGeneration++;
+      stopSource(ad);
+    }
+    state.timerOffset = state.currentTime;
+    state.playing = false;
+  } else {
+    const offset = hasAudio ? (ad.pauseOffset || 0) : state.timerOffset;
+
+    if (hasAudio) {
+      const ctx = getCtx();
+      if (ctx.state === 'suspended') ctx.resume();
+      if (offset >= ad.duration) {
+        ad.pauseOffset = 0;
+        state.timerOffset = 0;
+        startPlayback(ad, 0);
+      } else {
+        startPlayback(ad, offset);
+      }
+    }
+
+    state.timerStart = performance.now() - (offset * 1000);
+    state.playing = true;
+  }
+
+  if (state.mode === 'perform') {
+    updatePerfControls();
+  } else {
+    render();
+  }
+}
+
+function seekTo(fraction) {
+  const ad = getAudio();
+  const dur = ad ? ad.duration : getTimerDuration();
+  const newTime = Math.max(0, Math.min(fraction * dur, dur));
+
+  if (ad) ad.pauseOffset = newTime;
+  state.timerOffset = newTime;
+  state.currentTime = newTime;
+
+  if (state.playing) {
+    state.timerStart = performance.now() - (newTime * 1000);
+    if (ad && ad.playing) startPlayback(ad, newTime);
+  }
+
+  if (state.mode === 'perform') {
+    lastRenderedPerfLine = -1;
+    updatePerfDisplay();
+    updateTimeDisplays();
+  } else {
+    render();
+  }
+}
+
+function getTimerDuration() {
+  const song = getSong();
+  if (song.timings && song.timings.length > 0) {
+    return song.timings[song.timings.length - 1] + 5;
+  }
+  return 60;
+}
+
+// ==============================
+// Lightweight per-frame updates
+// ==============================
+function updateTimeDisplays() {
+  const ad = getAudio();
+  const song = getSong();
+  const dur = ad ? ad.duration : (song && song.timings && song.timings.length ? song.timings[song.timings.length - 1] + 5 : 0);
+  const progress = dur ? Math.min((state.currentTime / dur) * 100, 100) : 0;
+
+  const fills = document.querySelectorAll('.progress-fill');
+  for (let i = 0; i < fills.length; i++) fills[i].style.width = progress + '%';
+
+  const times = document.querySelectorAll('.time-display');
+  const timeStr = formatTime(state.currentTime) + ' / ' + formatTime(dur);
+  for (let i = 0; i < times.length; i++) times[i].textContent = timeStr;
+
+  const bigTimer = document.getElementById('perf-timer');
+  if (bigTimer) {
+    bigTimer.textContent = formatTime(state.currentTime);
+    const c = state.playing ? 'var(--green)' : 'var(--accent)';
+    bigTimer.style.color = c;
+    bigTimer.style.textShadow = '0 0 40px ' + c;
+  }
+}
+
+function updatePerfControls() {
+  const playBtn = document.getElementById('perf-play');
+  if (playBtn) {
+    playBtn.innerHTML = state.playing ? '&#10074;&#10074;' : '&#9654;';
+    playBtn.style.background = state.playing ? 'var(--green)' : 'var(--accent)';
+  }
+
+  const statusEl = document.getElementById('perf-status');
+  if (statusEl) {
+    const lines = getLines();
+    if (!lines.length) {
+      statusEl.textContent = 'NO LYRICS FOR THIS SONG';
+      statusEl.style.opacity = '1';
+    } else if (!state.playing && state.currentTime < 0.1) {
+      statusEl.textContent = 'PRESS PLAY TO START';
+      statusEl.style.opacity = '1';
+    } else {
+      statusEl.style.opacity = '0';
+    }
+  }
+}
+
+// Core perform mode update — only changes DOM when current line changes
+function updatePerfDisplay() {
+  if (!perfDomReady) return;
+
+  const song = getSong();
+  if (!song.timings || !song.timings.length) return;
+
+  const t = state.currentTime;
+  let line = 0;
+  for (let i = song.timings.length - 1; i >= 0; i--) {
+    if (t >= song.timings[i] - 0.3) {
+      line = i;
+      break;
+    }
+  }
+  state.performLine = line;
+
+  if (line === lastRenderedPerfLine) return;
+  lastRenderedPerfLine = line;
+
+  const lineEls = document.querySelectorAll('#perf-scroll .perf-line');
+  const count = lineEls.length;
+  for (let i = 0; i < count; i++) {
+    const dist = i - line;
+    let cls = 'perf-line';
+    if (lineEls[i].dataset.section === '1') cls += ' section-marker';
+
+    if (dist < -3) cls += ' distant-past';
+    else if (dist < 0) cls += ' past';
+    else if (dist === 0) cls += ' current';
+    else if (dist === 1) cls += ' next';
+    else if (dist === 2) cls += ' next-2';
+    else if (dist <= 5) cls += ' far';
+    else cls += ' distant-far';
+
+    lineEls[i].className = cls;
+  }
+
+  scrollPerfTo(line, lineEls);
+}
+
+function scrollPerfTo(lineIdx, lineEls) {
+  const scroll = document.getElementById('perf-scroll');
+  const container = document.getElementById('perf-lyrics-area');
+  if (!scroll || !container || !lineEls || !lineEls[lineIdx]) return;
+
+  const el = lineEls[lineIdx];
+  const containerH = container.clientHeight;
+  const targetY = el.offsetTop - (containerH * 0.38) + (el.offsetHeight / 2);
+  scroll.style.transform = 'translateY(' + (-Math.max(0, targetY)) + 'px)';
+}
+
+// Audio time tracker (runs continuously when audio exists)
+function audioTick() {
+  requestAnimationFrame(audioTick);
+
+  const ad = getAudio();
+  if (!ad) return;
+
+  if (ad.playing) {
+    const ctx = getCtx();
+    state.currentTime = ctx.currentTime - ad.startTime;
+    if (state.currentTime > ad.duration) state.currentTime = ad.duration;
+    state.duration = ad.duration;
+  }
+
+  updateTimeDisplays();
+  if (state.mode === 'perform') updatePerfDisplay();
+}
+requestAnimationFrame(audioTick);
+
+// ==============================
+// Song / mode management
+// ==============================
+function selectSong(id) {
+  if (state.playing) {
+    const ad = getAudio();
+    if (ad) { playGeneration++; stopSource(ad); ad.playing = false; }
+    state.playing = false;
+  }
+  resetTimer();
+  state.activeSong = id;
+  state.rehearsalLine = 0;
+  state.performLine = 0;
+  lastRenderedPerfLine = -1;
+  const ad = audioData[id];
+  if (ad) {
+    state.duration = ad.duration;
+    state.currentTime = ad.pauseOffset || 0;
+  } else {
+    state.duration = 0;
+    state.currentTime = 0;
+  }
+
+  perfDomReady = false;
+  render();
+}
+
+function setMode(m) {
+  state.mode = m;
+  perfDomReady = false;
+  lastRenderedPerfLine = -1;
+
+  if (m === 'rehearsal') {
+    state.rehearsalLine = 0;
+    const ad = getAudio();
+    if (ad) { playGeneration++; stopSource(ad); ad.playing = false; ad.pauseOffset = 0; }
+    state.playing = false;
+    state.currentTime = 0;
+  }
+
+  if (m === 'perform') {
+    state.performLine = 0;
+    state.showCursor = true;
+    resetTimer();
+    const ad = getAudio();
+    if (ad) { playGeneration++; stopSource(ad); ad.playing = false; ad.pauseOffset = 0; }
+    state.currentTime = 0;
+  }
+
+  render();
+}
+
+function rehearsalTap() {
+  const lines = getLines();
+  const ad = getAudio();
+  if (!ad || !lines.length) return;
+
+  const song = getSong();
+  if (!song.timings) song.timings = [];
+
+  song.timings[state.rehearsalLine] = state.currentTime;
+  state.rehearsalLine++;
+
+  if (state.rehearsalLine >= lines.length) {
+    saveState();
+    state.rehearsalLine = 0;
+    playGeneration++;
+    stopSource(ad);
+    ad.playing = false;
+    ad.pauseOffset = 0;
+    state.playing = false;
+  }
+
+  render();
+}
+
+// Cursor auto-hide — class toggle only, NO render()
+function perfMouseMove() {
+  const view = document.getElementById('perf-view');
+  if (!view) return;
+  if (!view.classList.contains('show-cursor')) view.classList.add('show-cursor');
+
+  clearTimeout(state.cursorTimeout);
+  state.cursorTimeout = setTimeout(() => {
+    const v = document.getElementById('perf-view');
+    if (v) v.classList.remove('show-cursor');
+  }, 3000);
+}
+
+// ==============================
+// Render
+// ==============================
+function render() {
+  const existingModal = document.getElementById('modal-overlay');
+  if (existingModal) existingModal.remove();
+
+  const app = document.getElementById('app');
+
+  if (state.mode === 'perform') {
+    app.innerHTML = renderPerformance();
+    perfDomReady = true;
+    lastRenderedPerfLine = -1;
+    attachPerformEvents();
+    updatePerfDisplay();
+    updatePerfControls();
+    return;
+  }
+
+  perfDomReady = false;
+
+  app.innerHTML = `
+    <div class="app">
+      <div class="sidebar">
+        <div class="sidebar-header">
+          <h1>Teleprompter</h1>
+          <div class="sub">Lyric Display System</div>
+        </div>
+        <div class="song-list">
+          ${SONGS.map((s, i) => {
+            const song = state.songs[s.id];
+            const hasLyrics = song.lyrics && song.lyrics.trim();
+            const hasAudio = !!state.audioElements[s.id];
+            const hasTimings = song.timings && song.timings.length > 0;
+            return `
+              <div class="song-item ${state.activeSong === s.id ? 'active' : ''}" data-song="${s.id}">
+                <span class="song-num">${i + 1}</span>
+                <span class="song-name">${s.name}</span>
+                <span class="song-status">
+                  <span class="status-dot ${hasLyrics ? 'has-lyrics' : ''}"></span>
+                  <span class="status-dot ${hasAudio ? 'has-audio' : ''}"></span>
+                  <span class="status-dot ${hasTimings ? 'has-timing' : ''}"></span>
+                </span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+        <div class="sidebar-footer" style="flex-direction:column; gap:8px;">
+          <div style="display:flex; gap:6px;">
+            <span class="legend"><span class="status-dot has-lyrics"></span>Lyrics</span>
+            <span class="legend"><span class="status-dot has-audio"></span>Audio</span>
+            <span class="legend"><span class="status-dot has-timing"></span>Timed</span>
+          </div>
+          <div style="display:flex; gap:4px;">
+            <button class="btn" style="flex:1; font-size:10px; padding:5px;" id="export-btn">Export</button>
+            <button class="btn" style="flex:1; font-size:10px; padding:5px;" id="import-btn">Import</button>
+          </div>
+        </div>
+      </div>
+      <div class="main">
+        <div class="toolbar">
+          <div class="mode-tabs">
+            <button class="mode-tab ${state.mode === 'setup' ? 'active' : ''}" data-mode="setup">Setup</button>
+            <button class="mode-tab ${state.mode === 'rehearsal' ? 'active' : ''}" data-mode="rehearsal">Rehearse</button>
+          </div>
+          <div class="toolbar-spacer"></div>
+          ${canPerform() ? `<button class="btn btn-accent" id="go-perform">&#9654; Perform</button>` : ''}
+        </div>
+        <div class="content">
+          ${state.mode === 'setup' ? renderSetup() : renderRehearsal()}
+        </div>
+        ${renderAudioBar()}
+      </div>
+    </div>
+  `;
+
+  attachEvents();
+
+  // Modal
+  const modalHtml = renderModal();
+  if (modalHtml) {
+    const modalDiv = document.createElement('div');
+    modalDiv.innerHTML = modalHtml;
+    document.body.appendChild(modalDiv.firstElementChild);
+
+    const overlay = document.getElementById('modal-overlay');
+    if (overlay) overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
+
+    const closeBtn = document.getElementById('modal-close');
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+
+    const copyBtn = document.getElementById('modal-copy');
+    if (copyBtn) copyBtn.addEventListener('click', () => {
+      const ta = document.getElementById('modal-textarea');
+      if (ta) {
+        ta.select();
+        navigator.clipboard.writeText(ta.value).then(() => {
+          copyBtn.textContent = 'Copied!';
+          setTimeout(() => { copyBtn.textContent = 'Copy to Clipboard'; }, 1500);
+        }).catch(() => {
+          ta.select();
+          document.execCommand('copy');
+          copyBtn.textContent = 'Copied!';
+        });
+      }
+    });
+
+    const importBtn2 = document.getElementById('modal-import');
+    if (importBtn2) importBtn2.addEventListener('click', () => {
+      const ta = document.getElementById('modal-textarea');
+      if (ta && ta.value.trim()) importData(ta.value.trim());
+    });
+  }
+}
+
+function canPerform() {
+  return SONGS.some(s => {
+    const song = state.songs[s.id];
+    return song.lyrics && song.lyrics.trim() && song.timings && song.timings.length > 0;
+  });
+}
+
+function renderSetup() {
+  const song = getSong();
+  const songMeta = SONGS.find(s => s.id === state.activeSong);
+
+  return `
+    <div class="setup-grid">
+      <div class="setup-card">
+        <h3>Load Audio</h3>
+        ${audioData[state.activeSong] ? `
+          <div class="file-loaded">
+            <span>&#9835;</span>
+            <span class="fname">${song.audioFile}</span>
+            <button class="btn" style="padding:4px 10px; font-size:11px;" id="remove-audio">Remove</button>
+          </div>
+        ` : `
+          <div class="file-drop" id="audio-drop">
+            <div class="icon">&#9835;</div>
+            <div class="label">${song.audioFile
+              ? 'Reload: ' + song.audioFile
+              : 'Click or drop audio file here'}</div>
+          </div>
+          <input type="file" accept="audio/*" id="audio-input" style="display:none">
+        `}
+        <div class="help-text">
+          ${!audioData[state.activeSong] && song.timings && song.timings.length > 0
+            ? 'Timings saved. Reload the audio to perform.'
+            : 'MP3, WAV, M4A, AAC supported.'}
+        </div>
+      </div>
+      <div class="setup-card">
+        <h3>Timing Status</h3>
+        ${song.timings && song.timings.length > 0 ? `
+          <div class="file-loaded">
+            <span>&#10003;</span>
+            <span class="fname">${song.timings.length} lines timed</span>
+          </div>
+          <button class="clear-timing" id="clear-timings">Clear timings and redo</button>
+        ` : `
+          <div style="color:var(--text-muted); font-size:13px;">
+            No timings set. Use Rehearse tab to tap-sync lyrics.
+          </div>
+        `}
+        <div class="help-text">
+          Play the track and tap each line as it should appear.
+        </div>
+      </div>
+      <div class="setup-card full">
+        <h3>Lyrics &mdash; ${songMeta.name}</h3>
+        <textarea class="lyrics-textarea" id="lyrics-input" placeholder="Paste lyrics here, one line per row.&#10;&#10;Blank lines will be ignored.&#10;Include section markers like [Chorus] if you want them visible.">${song.lyrics || ''}</textarea>
+        <div class="help-text">
+          ${getLines().length} lines detected.
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderRehearsal() {
+  const song = getSong();
+  const lines = getLines();
+  const audio = getAudio();
+
+  if (!song.lyrics || !song.lyrics.trim()) {
+    return `<div class="empty-state">No lyrics entered. Switch to Setup to paste them.</div>`;
+  }
+
+  if (!audio) {
+    return `<div class="empty-state">No audio loaded. Switch to Setup to load a file.</div>`;
+  }
+
+  if (state.rehearsalLine >= lines.length) {
+    return `
+      <div class="rehearsal-view">
+        <div class="rehearsal-instruction">Timing Complete</div>
+        <div class="rehearsal-current" style="color:var(--green);">All ${lines.length} lines timed &#10003;</div>
+        <div class="rehearsal-next">Switch to Performance mode or redo timing in Setup.</div>
+      </div>
+    `;
+  }
+
+  const current = lines[state.rehearsalLine] || '';
+  const next = lines[state.rehearsalLine + 1] || '';
+
+  return `
+    <div class="rehearsal-view">
+      <div class="rehearsal-instruction">Play the track, then tap each line as it comes</div>
+      <div class="rehearsal-progress">Line ${state.rehearsalLine + 1} of ${lines.length}</div>
+      <div class="rehearsal-current">${escHtml(current)}</div>
+      <div class="rehearsal-next">${escHtml(next)}</div>
+      <button class="tap-btn" id="tap-btn">${state.playing ? 'TAP' : 'Press play first'}</button>
+      <div class="help-text" style="margin-top:20px; text-align:center;">
+        Spacebar or tap the circle when each line should appear.
+      </div>
+    </div>
+  `;
+}
+
+// ==============================
+// PERFORMANCE VIEW — stable DOM
+// ==============================
+function renderPerformance() {
+  const song = getSong();
+  const lines = getLines();
+  const ad = getAudio();
+  const dur = ad ? ad.duration : (song.timings && song.timings.length ? song.timings[song.timings.length - 1] + 5 : 0);
+  const progress = dur ? (state.currentTime / dur) * 100 : 0;
+
+  const songOptions = SONGS.map(s => {
+    const sd = state.songs[s.id];
+    const hasTiming = sd.timings && sd.timings.length > 0;
+    const sel = s.id === state.activeSong ? 'selected' : '';
+    return `<option value="${s.id}" ${sel}>${s.name}${hasTiming ? '' : ' (no timing)'}</option>`;
+  }).join('');
+
+  const statusText = !lines.length
+    ? 'NO LYRICS FOR THIS SONG'
+    : (!state.playing && state.currentTime < 0.1 ? 'PRESS PLAY TO START' : '');
+
+  const linesHtml = lines.map((line, i) => {
+    const isSection = /^\[.*\]$/.test(line.trim());
+    return `<div class="perf-line far" data-idx="${i}" data-section="${isSection ? '1' : '0'}">${escHtml(line)}</div>`;
+  }).join('');
+
+  return `
+    <div class="performance-view show-cursor" id="perf-view">
+      <div class="perf-timer" id="perf-timer" style="
+        color:${state.playing ? 'var(--green)' : 'var(--accent)'};
+        text-shadow: 0 0 40px ${state.playing ? 'var(--green)' : 'var(--accent)'};
+      ">${formatTime(state.currentTime)}</div>
+
+      <div class="perf-lyrics" id="perf-lyrics-area">
+        <div class="perf-status" id="perf-status" style="opacity:${statusText ? '1' : '0'};">${statusText}</div>
+        <div class="perf-scroll" id="perf-scroll">
+          ${linesHtml}
+        </div>
+      </div>
+
+      <div class="perf-controls">
+        <div class="progress-wrap" id="perf-progress-bar" style="height:8px;">
+          <div class="progress-fill" style="width:${Math.min(progress, 100)}%"></div>
+        </div>
+        <div style="display:flex; align-items:center; gap:12px;">
+          <button id="perf-rewind" style="
+            width:44px; height:44px; border-radius:50%; border:2px solid #444;
+            background:#111; color:#aaa; font-size:18px; cursor:pointer;
+            display:flex; align-items:center; justify-content:center;
+            font-family:'DM Sans',sans-serif; flex-shrink:0;
+            touch-action:manipulation;
+          ">&#8634;</button>
+          <button id="perf-play" style="
+            width:60px; height:60px; border-radius:50%; border:none;
+            background:${state.playing ? 'var(--green)' : 'var(--accent)'};
+            color:#000; font-size:24px; cursor:pointer;
+            display:flex; align-items:center; justify-content:center;
+            flex-shrink:0; font-weight:bold;
+            touch-action:manipulation;
+          ">${state.playing ? '&#10074;&#10074;' : '&#9654;'}</button>
+          <select id="perf-song-select" style="
+            flex:1; max-width:300px; padding:10px 14px;
+            background:#111; color:var(--text); border:2px solid #444;
+            border-radius:8px; font-family:'DM Sans',sans-serif;
+            font-size:14px; cursor:pointer; appearance:auto;
+          ">${songOptions}</select>
+          <div class="time-display" style="min-width:110px; font-size:13px;">
+            ${formatTime(state.currentTime)} / ${formatTime(dur)}
+          </div>
+          <button id="perf-exit" style="
+            padding:8px 16px; border-radius:6px; border:1px solid #444;
+            background:#111; color:#888; font-size:12px; cursor:pointer;
+            font-family:'DM Sans',sans-serif; flex-shrink:0;
+            touch-action:manipulation;
+          ">ESC Exit</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderAudioBar() {
+  const audio = getAudio();
+  if (!audio) return '';
+  const progress = state.duration ? (state.currentTime / state.duration) * 100 : 0;
+
+  return `
+    <div class="audio-bar">
+      <button class="play-btn" id="play-btn">&#9654;</button>
+      <div class="progress-wrap" id="progress-bar">
+        <div class="progress-fill" style="width:${progress}%"></div>
+      </div>
+      <div class="time-display">${formatTime(state.currentTime)} / ${formatTime(state.duration)}</div>
+    </div>
+  `;
+}
+
+function escHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+// ==============================
+// Event binding
+// ==============================
+function attachEvents() {
+  document.querySelectorAll('.song-item').forEach(el => {
+    el.addEventListener('click', () => selectSong(parseInt(el.dataset.song)));
+  });
+
+  document.querySelectorAll('.mode-tab').forEach(el => {
+    el.addEventListener('click', () => setMode(el.dataset.mode));
+  });
+
+  const perfBtn = document.getElementById('go-perform');
+  if (perfBtn) perfBtn.addEventListener('click', () => setMode('perform'));
+
+  const exportBtn = document.getElementById('export-btn');
+  if (exportBtn) exportBtn.addEventListener('click', exportData);
+  const importBtn = document.getElementById('import-btn');
+  if (importBtn) importBtn.addEventListener('click', showImportModal);
+
+  const playBtn = document.getElementById('play-btn');
+  if (playBtn) playBtn.addEventListener('click', () => { unlockAudio(); togglePlay(); });
+
+  const progBar = document.getElementById('progress-bar');
+  if (progBar) {
+    progBar.addEventListener('click', (e) => {
+      const rect = progBar.getBoundingClientRect();
+      seekTo((e.clientX - rect.left) / rect.width);
+    });
+  }
+
+  const lyricsInput = document.getElementById('lyrics-input');
+  if (lyricsInput) {
+    lyricsInput.addEventListener('input', (e) => {
+      getSong().lyrics = e.target.value;
+      saveState();
+    });
+  }
+
+  const audioDrop = document.getElementById('audio-drop');
+  const audioInput = document.getElementById('audio-input');
+  if (audioDrop) {
+    audioDrop.addEventListener('click', () => audioInput.click());
+    audioDrop.addEventListener('dragover', (e) => { e.preventDefault(); audioDrop.style.borderColor = 'var(--accent)'; });
+    audioDrop.addEventListener('dragleave', () => { audioDrop.style.borderColor = 'var(--border)'; });
+    audioDrop.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (e.dataTransfer.files.length) loadAudioFile(state.activeSong, e.dataTransfer.files[0]);
+    });
+  }
+  if (audioInput) {
+    audioInput.addEventListener('change', (e) => {
+      if (e.target.files.length) loadAudioFile(state.activeSong, e.target.files[0]);
+    });
+  }
+
+  const removeAudio = document.getElementById('remove-audio');
+  if (removeAudio) {
+    removeAudio.addEventListener('click', () => {
+      const ad = getAudio();
+      if (ad) { playGeneration++; stopSource(ad); }
+      delete audioData[state.activeSong];
+      delete state.audioElements[state.activeSong];
+      getSong().audioFile = null;
+      state.playing = false;
+      state.duration = 0;
+      state.currentTime = 0;
+      render();
+    });
+  }
+
+  const clearTimings = document.getElementById('clear-timings');
+  if (clearTimings) {
+    clearTimings.addEventListener('click', () => {
+      getSong().timings = [];
+      saveState();
+      state.rehearsalLine = 0;
+      const ad = getAudio();
+      if (ad) { playGeneration++; stopSource(ad); ad.playing = false; ad.pauseOffset = 0; }
+      state.playing = false;
+      state.currentTime = 0;
+      render();
+    });
+  }
+
+  const tapBtn = document.getElementById('tap-btn');
+  if (tapBtn) {
+    tapBtn.addEventListener('click', () => {
+      unlockAudio();
+      if (state.playing) rehearsalTap();
+    });
+    // Touch support — prevent double-fire
+    tapBtn.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      unlockAudio();
+      if (state.playing) rehearsalTap();
+    });
+  }
+}
+
+function attachPerformEvents() {
+  const view = document.getElementById('perf-view');
+  if (!view) return;
+
+  view.addEventListener('click', function(e) {
+    if (e.target.id === 'perf-exit' || e.target.closest('#perf-exit')) {
+      e.stopPropagation();
+      resetTimer();
+      const ad = getAudio();
+      if (ad && ad.playing) { playGeneration++; stopSource(ad); ad.playing = false; ad.pauseOffset = 0; }
+      state.playing = false;
+      setMode('setup');
+      return;
+    }
+
+    if (e.target.id === 'perf-play' || e.target.closest('#perf-play')) {
+      e.stopPropagation();
+      performTogglePlay();
+      return;
+    }
+
+    if (e.target.id === 'perf-rewind' || e.target.closest('#perf-rewind')) {
+      e.stopPropagation();
+      if (state.playing) {
+        const ad = getAudio();
+        if (ad && ad.playing) { playGeneration++; stopSource(ad); ad.playing = false; ad.pauseOffset = 0; }
+        if (perfTimer) cancelAnimationFrame(perfTimer);
+        perfTimer = null;
+      }
+      state.playing = false;
+      state.timerOffset = 0;
+      state.timerStart = 0;
+      state.currentTime = 0;
+      state.performLine = 0;
+      lastRenderedPerfLine = -1;
+      const ad2 = getAudio();
+      if (ad2) ad2.pauseOffset = 0;
+      updatePerfDisplay();
+      updatePerfControls();
+      updateTimeDisplays();
+      return;
+    }
+
+    const progBar = e.target.closest('#perf-progress-bar');
+    if (progBar) {
+      e.stopPropagation();
+      const rect = progBar.getBoundingClientRect();
+      seekTo((e.clientX - rect.left) / rect.width);
+      return;
+    }
+
+    if (e.target.closest('.perf-controls')) return;
+
+    // Tap anywhere on lyrics = play/pause
+    performTogglePlay();
+  });
+
+  // Touch support for lyrics area tap
+  const lyricsArea = document.getElementById('perf-lyrics-area');
+  if (lyricsArea) {
+    lyricsArea.addEventListener('touchend', (e) => {
+      // Only handle taps on the lyrics area itself, not controls
+      if (e.target.closest('.perf-controls')) return;
+      e.preventDefault();
+      performTogglePlay();
+    });
+  }
+
+  view.addEventListener('change', function(e) {
+    if (e.target.id === 'perf-song-select') {
+      const newId = parseInt(e.target.value);
+      if (state.playing) {
+        const ad = getAudio();
+        if (ad && ad.playing) { playGeneration++; stopSource(ad); ad.playing = false; }
+        if (perfTimer) cancelAnimationFrame(perfTimer);
+        perfTimer = null;
+        state.playing = false;
+      }
+      state.timerOffset = 0;
+      state.timerStart = 0;
+      state.currentTime = 0;
+      state.performLine = 0;
+      lastRenderedPerfLine = -1;
+      state.activeSong = newId;
+      const ad2 = audioData[newId];
+      if (ad2) { state.duration = ad2.duration; ad2.pauseOffset = 0; }
+      else { state.duration = 0; }
+      perfDomReady = false;
+      render();
+    }
+  });
+
+  view.addEventListener('mousemove', perfMouseMove);
+  // Touch triggers cursor show too
+  view.addEventListener('touchstart', perfMouseMove, { passive: true });
+}
+
+// Global keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+
+  if (e.code === 'Space') {
+    e.preventDefault();
+    if (state.mode === 'rehearsal' && state.playing) {
+      rehearsalTap();
+    } else if (state.mode === 'perform') {
+      performTogglePlay();
+    } else {
+      unlockAudio();
+      togglePlay();
+    }
+  }
+
+  if (e.code === 'Escape' && state.mode === 'perform') {
+    resetTimer();
+    const ad = getAudio();
+    if (ad && ad.playing) { playGeneration++; stopSource(ad); ad.playing = false; ad.pauseOffset = 0; }
+    state.playing = false;
+    setMode('setup');
+  }
+
+  if (state.mode === 'perform') {
+    if (e.code === 'ArrowRight' || e.code === 'ArrowDown') {
+      const idx = SONGS.findIndex(s => s.id === state.activeSong);
+      if (idx < SONGS.length - 1) selectSong(SONGS[idx + 1].id);
+    }
+    if (e.code === 'ArrowLeft' || e.code === 'ArrowUp') {
+      const idx = SONGS.findIndex(s => s.id === state.activeSong);
+      if (idx > 0) selectSong(SONGS[idx - 1].id);
+    }
+  }
+});
+
+// ==============================
+// Init
+// ==============================
+loadState();
+render();
+</script>
+
+</body>
+</html>

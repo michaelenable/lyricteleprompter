@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <rect width="192" height="192" rx="38" fill="#0a0a0f"/>
+  <g transform="translate(96,88)">
+    <!-- Music note -->
+    <circle cx="0" cy="28" r="16" fill="#ff6b35"/>
+    <rect x="14" y="-40" width="5" height="68" rx="2.5" fill="#ff6b35"/>
+    <path d="M19,-40 Q50,-52 46,-24 L19,-16 Z" fill="#ff6b35" opacity="0.85"/>
+    <!-- Scroll lines -->
+    <rect x="-60" y="-52" width="40" height="3" rx="1.5" fill="#4ade80" opacity="0.5"/>
+    <rect x="-60" y="-40" width="35" height="3" rx="1.5" fill="#fff" opacity="0.9"/>
+    <rect x="-60" y="-28" width="38" height="3" rx="1.5" fill="#6a6a7a" opacity="0.4"/>
+  </g>
+  <text x="96" y="152" text-anchor="middle" font-family="sans-serif" font-weight="700" font-size="16" fill="#ff6b35" letter-spacing="3">TELEPROMPTER</text>
+</svg>
