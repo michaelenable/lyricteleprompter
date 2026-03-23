@@ -1186,6 +1186,7 @@ function resetBandState() {
   state.bandLiveBpm = 0;
   state.bandStartTime = 0;
   state.bandSongTime = 0;
+  state.bandLastFrame = 0;
 }
 
 function bandBeatTap() {
@@ -1196,6 +1197,7 @@ function bandBeatTap() {
     state.bandTaps = [now];
     state.bandStartTime = now;
     state.bandSongTime = 0;
+    state.bandLastFrame = now;
     state.currentTime = 0;
     state.playing = true;
     state.performLine = -1;
@@ -1646,13 +1648,18 @@ function audioTick() {
 
   const ad = getAudio();
 
-  // Band mode: scale real time by BPM ratio
+  // Band mode: advance song time incrementally, scaled by current BPM ratio each frame
   if (state.bandMode && state.playing && state.bandLiveBpm > 0) {
-    const song = getSong();
-    const originalBpm = song.bpm || 120;
-    const elapsedReal = (performance.now() - state.bandStartTime) / 1000;
-    state.currentTime = (originalBpm / state.bandLiveBpm) * elapsedReal;
-    state.bandSongTime = state.currentTime;
+    const now = performance.now();
+    const realDeltaMs = now - (state.bandLastFrame || now);
+    state.bandLastFrame = now;
+    if (realDeltaMs > 0 && realDeltaMs < 200) { // Skip huge gaps (tab switch etc)
+      const song = getSong();
+      const originalBpm = song.bpm || 120;
+      const songDelta = (originalBpm / state.bandLiveBpm) * (realDeltaMs / 1000);
+      state.bandSongTime += songDelta;
+    }
+    state.currentTime = state.bandSongTime;
   }
   // Update currentTime from audio clock when audio is playing (backing track mode)
   else if (ad && ad.playing) {
