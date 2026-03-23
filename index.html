@@ -657,7 +657,7 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
-const SONGS = [
+const DEFAULT_SONGS = [
   { id: 1, name: 'Blinding Lights' },
   { id: 2, name: "Can't Take My Eyes Off You" },
   { id: 3, name: 'Dancing In The Dark' },
@@ -668,6 +668,8 @@ const SONGS = [
   { id: 8, name: 'Uptown Funk' },
   { id: 9, name: 'Viva La Vida' },
 ];
+let SONGS = [...DEFAULT_SONGS];
+let nextSongId = 10;
 
 // ==============================
 // State
@@ -695,7 +697,7 @@ let lastRenderedPerfLine = -1;
 let perfDomReady = false;
 let perfScrollReady = false; // true once initial scroll position is set and transitions re-enabled
 
-// Init song data
+// Init song data for defaults
 SONGS.forEach(s => {
   state.songs[s.id] = { lyrics: '', timings: [], audioFile: null };
 });
@@ -705,19 +707,37 @@ SONGS.forEach(s => {
 // ==============================
 function loadState() {
   try {
+    // Restore song list
+    const songListRaw = localStorage.getItem('teleprompter-songs');
+    if (songListRaw) {
+      const savedSongs = JSON.parse(songListRaw);
+      if (savedSongs.length) {
+        SONGS = savedSongs;
+        // Recalculate nextSongId
+        nextSongId = Math.max(...SONGS.map(s => s.id)) + 1;
+        // Ensure all songs have a data entry
+        SONGS.forEach(s => {
+          if (!state.songs[s.id]) state.songs[s.id] = { lyrics: '', timings: [], audioFile: null };
+        });
+      }
+    }
+
+    // Restore song data (lyrics, timings, audioFile names)
     const raw = localStorage.getItem('teleprompter-data');
     if (raw) {
       const saved = JSON.parse(raw);
-      let restored = 0;
       Object.keys(saved).forEach(id => {
         if (state.songs[id]) {
           state.songs[id].lyrics = saved[id].lyrics || '';
           state.songs[id].timings = saved[id].timings || [];
           state.songs[id].audioFile = saved[id].audioFile || null;
-          if (saved[id].lyrics || (saved[id].timings && saved[id].timings.length)) restored++;
         }
       });
-      console.log('Teleprompter: restored ' + restored + ' songs');
+    }
+
+    // Make sure activeSong is valid
+    if (!SONGS.find(s => s.id === state.activeSong) && SONGS.length) {
+      state.activeSong = SONGS[0].id;
     }
   } catch(e) {
     console.error('Load error:', e);
@@ -726,6 +746,10 @@ function loadState() {
 
 function saveState() {
   try {
+    // Save song list
+    localStorage.setItem('teleprompter-songs', JSON.stringify(SONGS));
+
+    // Save song data
     const data = {};
     Object.keys(state.songs).forEach(id => {
       data[id] = {
@@ -738,6 +762,40 @@ function saveState() {
   } catch(e) {
     console.error('Save error:', e);
   }
+}
+
+function addSong(name) {
+  const id = nextSongId++;
+  SONGS.push({ id, name });
+  SONGS.sort((a, b) => a.name.localeCompare(b.name));
+  state.songs[id] = { lyrics: '', timings: [], audioFile: null };
+  state.activeSong = id;
+  state.mode = 'setup';
+  saveState();
+  render();
+}
+
+function renameSong(id, newName) {
+  const song = SONGS.find(s => s.id === id);
+  if (song) {
+    song.name = newName;
+    SONGS.sort((a, b) => a.name.localeCompare(b.name));
+    saveState();
+    render();
+  }
+}
+
+function deleteSong(id) {
+  if (SONGS.length <= 1) return; // keep at least one
+  SONGS = SONGS.filter(s => s.id !== id);
+  delete state.songs[id];
+  delete audioData[id];
+  delete state.audioElements[id];
+  if (state.activeSong === id) {
+    state.activeSong = SONGS[0].id;
+  }
+  saveState();
+  render();
 }
 
 // ==============================
@@ -761,11 +819,29 @@ function importData(json) {
     const data = JSON.parse(json);
     Object.keys(data).forEach(id => {
       if (state.songs[id]) {
+        // Update existing song
         state.songs[id].lyrics = data[id].lyrics || '';
         state.songs[id].timings = data[id].timings || [];
         state.songs[id].audioFile = data[id].audioFile || null;
+        // Update name if provided
+        if (data[id].name) {
+          const s = SONGS.find(s => s.id === parseInt(id));
+          if (s) s.name = data[id].name;
+        }
+      } else if (data[id].name) {
+        // Create new song from import
+        const numId = parseInt(id);
+        SONGS.push({ id: numId, name: data[id].name });
+        state.songs[numId] = {
+          lyrics: data[id].lyrics || '',
+          timings: data[id].timings || [],
+          audioFile: data[id].audioFile || null
+        };
+        if (numId >= nextSongId) nextSongId = numId + 1;
       }
     });
+    // Sort songs alphabetically
+    SONGS.sort((a, b) => a.name.localeCompare(b.name));
     saveState();
     state.modalMode = null;
     state.modalData = '';
@@ -1378,6 +1454,9 @@ function render() {
             <span class="legend"><span class="status-dot has-timing"></span>Timed</span>
           </div>
           <div style="display:flex; gap:4px;">
+            <button class="btn btn-accent" style="flex:1; font-size:10px; padding:5px;" id="add-song-btn">+ Add Song</button>
+          </div>
+          <div style="display:flex; gap:4px;">
             <button class="btn" style="flex:1; font-size:10px; padding:5px;" id="export-btn">Export</button>
             <button class="btn" style="flex:1; font-size:10px; padding:5px;" id="import-btn">Import</button>
           </div>
@@ -1452,6 +1531,17 @@ function renderSetup() {
 
   return `
     <div class="setup-grid">
+      <div class="setup-card full">
+        <h3>Song</h3>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input type="text" id="song-name-input" value="${escHtml(songMeta.name)}" style="
+            flex:1; padding:8px 12px; background:var(--bg); border:1px solid var(--border);
+            border-radius:6px; color:var(--text); font-family:'DM Sans',sans-serif; font-size:14px;
+          ">
+          <button class="btn" style="padding:6px 12px; font-size:11px;" id="rename-song-btn">Rename</button>
+          ${SONGS.length > 1 ? `<button class="btn" style="padding:6px 12px; font-size:11px; color:var(--red); border-color:var(--red);" id="delete-song-btn">Delete</button>` : ''}
+        </div>
+      </div>
       <div class="setup-card">
         <h3>Load Audio</h3>
         ${audioData[state.activeSong] ? `
@@ -1678,6 +1768,29 @@ function attachEvents() {
   if (exportBtn) exportBtn.addEventListener('click', exportData);
   const importBtn = document.getElementById('import-btn');
   if (importBtn) importBtn.addEventListener('click', showImportModal);
+
+  // Add song
+  const addBtn = document.getElementById('add-song-btn');
+  if (addBtn) addBtn.addEventListener('click', () => {
+    const name = prompt('Song name:');
+    if (name && name.trim()) addSong(name.trim());
+  });
+
+  // Rename song
+  const renameBtn = document.getElementById('rename-song-btn');
+  if (renameBtn) renameBtn.addEventListener('click', () => {
+    const input = document.getElementById('song-name-input');
+    if (input && input.value.trim()) renameSong(state.activeSong, input.value.trim());
+  });
+
+  // Delete song
+  const deleteBtn = document.getElementById('delete-song-btn');
+  if (deleteBtn) deleteBtn.addEventListener('click', () => {
+    const songMeta = SONGS.find(s => s.id === state.activeSong);
+    if (confirm('Delete "' + songMeta.name + '"? This removes lyrics and timings.')) {
+      deleteSong(state.activeSong);
+    }
+  });
 
   const playBtn = document.getElementById('play-btn');
   if (playBtn) playBtn.addEventListener('click', () => { unlockAudio(); togglePlay(); });
