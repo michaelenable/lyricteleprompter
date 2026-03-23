@@ -476,6 +476,9 @@
     line-height: 1.35;
     white-space: normal;
     word-wrap: break-word;
+    cursor: pointer;
+    -webkit-tap-highlight-color: rgba(255, 107, 53, 0.15);
+    border-radius: 8px;
     transition:
       font-size 0.4s cubic-bezier(0.22, 1, 0.36, 1),
       color 0.4s ease-out,
@@ -1271,6 +1274,32 @@ function bandBeatTap() {
     pulse.style.transform = 'scale(1.15)';
     setTimeout(() => { if (pulse) pulse.style.transform = 'scale(1)'; }, 100);
   }
+}
+
+function jumpToLine(idx) {
+  const song = getSong();
+  if (!song.timings || idx < 0 || idx >= song.timings.length) return;
+
+  const targetTime = song.timings[idx];
+
+  if (state.bandMode) {
+    // In band mode, set the song time directly
+    state.bandSongTime = targetTime;
+    state.bandLastFrame = performance.now();
+    state.currentTime = targetTime;
+  } else {
+    // In backing track mode, seek audio to this time
+    const ad = getAudio();
+    const dur = ad ? ad.duration : getTimerDuration();
+    const fraction = targetTime / dur;
+    seekTo(fraction);
+  }
+
+  // Force display update
+  state.performLine = idx;
+  lastRenderedPerfLine = -999;
+  updatePerfDisplay();
+  updateTimeDisplays();
 }
 
 function nudgeLyrics(delta) {
@@ -2590,6 +2619,16 @@ function attachPerformEvents() {
     }
 
     if (e.target.closest('.perf-controls')) return;
+
+    // Tap on a lyric line to jump to it
+    const tappedLine = e.target.closest('.perf-line');
+    if (tappedLine && tappedLine.dataset.idx != null) {
+      const idx = parseInt(tappedLine.dataset.idx);
+      if (idx !== state.performLine) {
+        jumpToLine(idx);
+        return;
+      }
+    }
 
     // Band mode: tap = beat, Backing track: tap = play/pause
     if (state.bandMode) { bandBeatTap(); } else { performTogglePlay(); }
