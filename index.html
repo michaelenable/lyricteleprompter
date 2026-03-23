@@ -1667,7 +1667,8 @@ function updatePerfCountdown() {
   const gapStart = line === -1 ? 0 : song.timings[line];
   const totalGap = nextTime - gapStart;
   const remaining = nextTime - t;
-  const THRESHOLD = 4;
+  // Always show countdown for song intro (line === -1), otherwise only for gaps > 4s
+  const THRESHOLD = (line === -1) ? 1 : 4;
 
   if (totalGap > THRESHOLD && remaining > 0.3) {
     // Track the full gap duration for bar percentage
