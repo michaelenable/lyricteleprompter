@@ -738,6 +738,15 @@ let state = {
   setlistIndex: 0,
   // Live timing offset — shifts lyrics earlier/later without modifying saved timings
   lyricsOffset: 0,
+  // Band mode — tap tempo driven lyrics
+  bandMode: false,
+  bandTaps: [],
+  bandLiveBpm: 0,
+  bandStartTime: 0,
+  bandSongTime: 0,
+  // Setup BPM tapping
+  setupBpmTaps: [],
+  setupBpmLive: 0,
 };
 
 // Performance mode tracking — avoids unnecessary DOM work
@@ -747,7 +756,7 @@ let perfScrollReady = false; // true once initial scroll position is set and tra
 
 // Init song data for defaults
 SONGS.forEach(s => {
-  state.songs[s.id] = { lyrics: '', timings: [], audioFile: null };
+  state.songs[s.id] = { lyrics: '', timings: [], audioFile: null, bpm: null };
 });
 
 // ==============================
@@ -799,7 +808,7 @@ async function cloudLoad() {
       SONGS = payload.songs;
       nextSongId = Math.max(...SONGS.map(s => s.id)) + 1;
       SONGS.forEach(s => {
-        if (!state.songs[s.id]) state.songs[s.id] = { lyrics: '', timings: [], audioFile: null };
+        if (!state.songs[s.id]) state.songs[s.id] = { lyrics: '', timings: [], audioFile: null, bpm: null };
       });
     }
 
@@ -810,6 +819,7 @@ async function cloudLoad() {
           state.songs[id].lyrics = payload.songData[id].lyrics || '';
           state.songs[id].timings = payload.songData[id].timings || [];
           state.songs[id].audioFile = payload.songData[id].audioFile || null;
+          state.songs[id].bpm = payload.songData[id].bpm || null;
         }
       });
     }
@@ -854,7 +864,7 @@ function loadState() {
         nextSongId = Math.max(...SONGS.map(s => s.id)) + 1;
         // Ensure all songs have a data entry
         SONGS.forEach(s => {
-          if (!state.songs[s.id]) state.songs[s.id] = { lyrics: '', timings: [], audioFile: null };
+          if (!state.songs[s.id]) state.songs[s.id] = { lyrics: '', timings: [], audioFile: null, bpm: null };
         });
       }
     }
@@ -868,6 +878,7 @@ function loadState() {
           state.songs[id].lyrics = saved[id].lyrics || '';
           state.songs[id].timings = saved[id].timings || [];
           state.songs[id].audioFile = saved[id].audioFile || null;
+          state.songs[id].bpm = saved[id].bpm || null;
         }
       });
     }
@@ -900,7 +911,8 @@ function saveState() {
       data[id] = {
         lyrics: state.songs[id].lyrics,
         timings: state.songs[id].timings,
-        audioFile: state.songs[id].audioFile || null
+        audioFile: state.songs[id].audioFile || null,
+        bpm: state.songs[id].bpm || null
       };
     });
     localStorage.setItem('teleprompter-data', JSON.stringify(data));
@@ -919,7 +931,7 @@ function addSong(name) {
   const id = nextSongId++;
   SONGS.push({ id, name });
   SONGS.sort((a, b) => a.name.localeCompare(b.name));
-  state.songs[id] = { lyrics: '', timings: [], audioFile: null };
+  state.songs[id] = { lyrics: '', timings: [], audioFile: null, bpm: null };
   state.activeSong = id;
   state.mode = 'setup';
   saveState();
@@ -1009,6 +1021,7 @@ function importData(json) {
         state.songs[id].lyrics = data[id].lyrics || '';
         state.songs[id].timings = data[id].timings || [];
         state.songs[id].audioFile = data[id].audioFile || null;
+        if (data[id].bpm) state.songs[id].bpm = data[id].bpm;
         // Update name if provided
         if (data[id].name) {
           const s = SONGS.find(s => s.id === parseInt(id));
@@ -1119,6 +1132,113 @@ function tickTimer() {
 }
 
 // Unified play/pause for perform mode
+// ==============================
+// Band Mode — tap tempo performance
+// ==============================
+function setupBpmTap() {
+  const now = performance.now();
+  // Reset if gap > 3 seconds
+  if (state.setupBpmTaps.length && now - state.setupBpmTaps[state.setupBpmTaps.length - 1] > 3000) {
+    state.setupBpmTaps = [];
+  }
+  state.setupBpmTaps.push(now);
+  if (state.setupBpmTaps.length > 12) state.setupBpmTaps = state.setupBpmTaps.slice(-12);
+
+  if (state.setupBpmTaps.length >= 2) {
+    const intervals = [];
+    for (let i = 1; i < state.setupBpmTaps.length; i++) {
+      intervals.push(state.setupBpmTaps[i] - state.setupBpmTaps[i - 1]);
+    }
+    const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+    state.setupBpmLive = Math.round(60000 / avg);
+  }
+
+  // Update display without full re-render
+  const bpmDisp = document.getElementById('setup-bpm-live');
+  if (bpmDisp) bpmDisp.textContent = state.setupBpmLive || '--';
+  const saveBtn = document.getElementById('save-bpm-btn');
+  if (saveBtn) saveBtn.style.display = state.setupBpmLive > 0 ? 'inline-block' : 'none';
+}
+
+function saveSongBpm(bpm) {
+  getSong().bpm = Math.round(bpm);
+  state.setupBpmTaps = [];
+  state.setupBpmLive = 0;
+  saveState();
+  render();
+}
+
+function toggleBandMode() {
+  state.bandMode = !state.bandMode;
+  resetBandState();
+  // In band mode, stop any audio playback
+  if (state.bandMode && state.playing) {
+    const ad = getAudio();
+    if (ad && ad.playing) { playGeneration++; stopSource(ad); ad.playing = false; }
+    state.playing = false;
+  }
+  lastRenderedPerfLine = -999;
+  render();
+}
+
+function resetBandState() {
+  state.bandTaps = [];
+  state.bandLiveBpm = 0;
+  state.bandStartTime = 0;
+  state.bandSongTime = 0;
+}
+
+function bandBeatTap() {
+  const now = performance.now();
+
+  // First tap = start
+  if (!state.playing || state.bandTaps.length === 0) {
+    state.bandTaps = [now];
+    state.bandStartTime = now;
+    state.bandSongTime = 0;
+    state.currentTime = 0;
+    state.playing = true;
+    state.performLine = -1;
+    lastRenderedPerfLine = -999;
+    updatePerfControls();
+    return;
+  }
+
+  // Reset if gap > 5 seconds (user stopped tapping)
+  const lastTap = state.bandTaps[state.bandTaps.length - 1];
+  if (now - lastTap > 5000) {
+    state.bandTaps = [now];
+    state.bandStartTime = now;
+    state.bandSongTime = 0;
+    state.bandLiveBpm = 0;
+    return;
+  }
+
+  state.bandTaps.push(now);
+  if (state.bandTaps.length > 12) state.bandTaps = state.bandTaps.slice(-12);
+
+  // Calculate BPM from intervals
+  if (state.bandTaps.length >= 2) {
+    const intervals = [];
+    for (let i = 1; i < state.bandTaps.length; i++) {
+      intervals.push(state.bandTaps[i] - state.bandTaps[i - 1]);
+    }
+    // Sort and discard outliers (keep middle 60%)
+    intervals.sort((a, b) => a - b);
+    const trim = Math.floor(intervals.length * 0.2);
+    const trimmed = intervals.slice(trim, intervals.length - trim || intervals.length);
+    const avg = trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
+    state.bandLiveBpm = Math.max(40, Math.min(240, 60000 / avg));
+  }
+
+  // Visual pulse feedback
+  const pulse = document.getElementById('band-bpm-display');
+  if (pulse) {
+    pulse.style.transform = 'scale(1.15)';
+    setTimeout(() => { if (pulse) pulse.style.transform = 'scale(1)'; }, 100);
+  }
+}
+
 function nudgeLyrics(delta) {
   state.lyricsOffset = Math.round((state.lyricsOffset + delta) * 10) / 10;
   // Force line recalc
@@ -1364,10 +1484,23 @@ function updateTimeDisplays() {
 
   const bigTimer = document.getElementById('perf-timer');
   if (bigTimer) {
-    bigTimer.textContent = formatTime(state.currentTime);
-    const c = state.playing ? 'var(--green)' : 'var(--accent)';
-    bigTimer.style.color = c;
-    bigTimer.style.textShadow = '0 0 40px ' + c;
+    if (state.bandMode) {
+      bigTimer.textContent = state.bandLiveBpm > 0 ? Math.round(state.bandLiveBpm) + ' BPM' : 'TAP BEAT';
+      const c = state.playing ? 'var(--green)' : 'var(--accent)';
+      bigTimer.style.color = c;
+      bigTimer.style.textShadow = '0 0 40px ' + c;
+    } else {
+      bigTimer.textContent = formatTime(state.currentTime);
+      const c = state.playing ? 'var(--green)' : 'var(--accent)';
+      bigTimer.style.color = c;
+      bigTimer.style.textShadow = '0 0 40px ' + c;
+    }
+  }
+
+  // Band mode BPM display
+  const bandDisp = document.getElementById('band-bpm-display');
+  if (bandDisp) {
+    bandDisp.textContent = state.bandLiveBpm > 0 ? Math.round(state.bandLiveBpm) + ' BPM' : '--';
   }
 }
 
@@ -1513,8 +1646,16 @@ function audioTick() {
 
   const ad = getAudio();
 
-  // Update currentTime from audio clock when audio is playing
-  if (ad && ad.playing) {
+  // Band mode: scale real time by BPM ratio
+  if (state.bandMode && state.playing && state.bandLiveBpm > 0) {
+    const song = getSong();
+    const originalBpm = song.bpm || 120;
+    const elapsedReal = (performance.now() - state.bandStartTime) / 1000;
+    state.currentTime = (originalBpm / state.bandLiveBpm) * elapsedReal;
+    state.bandSongTime = state.currentTime;
+  }
+  // Update currentTime from audio clock when audio is playing (backing track mode)
+  else if (ad && ad.playing) {
     const ctx = getCtx();
     state.currentTime = ctx.currentTime - ad.startTime;
     if (state.currentTime > ad.duration) state.currentTime = ad.duration;
@@ -1544,6 +1685,7 @@ function selectSong(id) {
   state.rehearsalLine = 0;
   state.performLine = 0;
   state.lyricsOffset = 0;
+  resetBandState();
   lastRenderedPerfLine = -1;
   const ad = audioData[id];
   if (ad) {
@@ -1845,6 +1987,32 @@ function renderSetup() {
           Play the track and tap each line as it should appear.
         </div>
       </div>
+      <div class="setup-card">
+        <h3>Song BPM (Band Mode)</h3>
+        ${song.bpm ? `
+          <div class="file-loaded">
+            <span>&#9835;</span>
+            <span class="fname">${song.bpm} BPM</span>
+            <button class="btn" style="padding:4px 10px; font-size:11px;" id="clear-bpm">Clear</button>
+          </div>
+          <div class="help-text">BPM set. Band Mode will be available in Perform.</div>
+        ` : `
+          <div style="display:flex; align-items:center; gap:12px; margin-bottom:10px;">
+            <button class="btn btn-accent" style="padding:12px 24px; font-size:14px;" id="setup-bpm-tap">TAP</button>
+            <span style="font-family:'Space Mono',monospace; font-size:24px; color:var(--accent); min-width:60px;" id="setup-bpm-live">${state.setupBpmLive || '--'}</span>
+            <span style="font-size:12px; color:var(--text-dim);">BPM</span>
+            <button class="btn btn-green" style="padding:6px 14px; font-size:12px; display:${state.setupBpmLive > 0 ? 'inline-block' : 'none'};" id="save-bpm-btn">Save</button>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <input type="number" id="manual-bpm" placeholder="Or enter BPM" min="40" max="240" style="
+              width:120px; padding:6px 10px; background:var(--bg); border:1px solid var(--border);
+              border-radius:6px; color:var(--text); font-family:'Space Mono',monospace; font-size:13px;
+            ">
+            <button class="btn" style="padding:6px 12px; font-size:11px;" id="save-manual-bpm">Set</button>
+          </div>
+          <div class="help-text">Tap the beat to detect BPM, or enter manually. Required for Band Mode.</div>
+        `}
+      </div>
       <div class="setup-card full">
         <h3>Lyrics &mdash; ${songMeta.name}</h3>
         <textarea class="lyrics-textarea" id="lyrics-input" placeholder="Paste lyrics here, one line per row.&#10;&#10;Blank lines will be ignored.&#10;Include section markers like [Chorus] if you want them visible.">${song.lyrics || ''}</textarea>
@@ -2044,7 +2212,26 @@ function renderPerformance() {
         <div class="progress-wrap" id="perf-progress-bar" style="height:14px;">
           <div class="progress-fill" style="width:${Math.min(progress, 100)}%"></div>
         </div>
-        <div style="display:flex; align-items:center; gap:12px;">
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          ${getSong().bpm ? `
+          <button id="band-toggle" style="
+            width:88px; height:88px; border-radius:12px;
+            border:2px solid ${state.bandMode ? 'var(--accent)' : '#444'};
+            background:${state.bandMode ? 'var(--accent)' : '#111'};
+            color:${state.bandMode ? '#000' : '#666'};
+            font-size:14px; font-weight:700; cursor:pointer;
+            display:flex; flex-direction:column; align-items:center; justify-content:center;
+            font-family:'Space Mono',monospace; flex-shrink:0;
+            touch-action:manipulation; letter-spacing:1px;
+          "><span style="font-size:11px;">BAND</span><span style="font-size:11px;">MODE</span></button>
+          ` : ''}
+          ${state.bandMode ? `
+          <div id="band-bpm-display" style="
+            font-family:'Space Mono',monospace; font-size:28px; font-weight:700;
+            color:var(--accent); min-width:100px; text-align:center;
+            transition: transform 0.1s ease;
+          ">${state.bandLiveBpm > 0 ? Math.round(state.bandLiveBpm) + ' BPM' : '--'}</div>
+          ` : ''}
           <button id="perf-rewind" style="
             width:88px; height:88px; border-radius:50%; border:2px solid #444;
             background:#111; color:#aaa; font-size:36px; cursor:pointer;
@@ -2164,6 +2351,19 @@ function attachEvents() {
       deleteSong(state.activeSong);
     }
   });
+
+  // BPM setup controls
+  const bpmTapBtn = document.getElementById('setup-bpm-tap');
+  if (bpmTapBtn) bpmTapBtn.addEventListener('click', setupBpmTap);
+  const saveBpmBtn = document.getElementById('save-bpm-btn');
+  if (saveBpmBtn) saveBpmBtn.addEventListener('click', () => { if (state.setupBpmLive > 0) saveSongBpm(state.setupBpmLive); });
+  const saveManualBpm = document.getElementById('save-manual-bpm');
+  if (saveManualBpm) saveManualBpm.addEventListener('click', () => {
+    const val = parseInt(document.getElementById('manual-bpm').value);
+    if (val >= 40 && val <= 240) saveSongBpm(val);
+  });
+  const clearBpm = document.getElementById('clear-bpm');
+  if (clearBpm) clearBpm.addEventListener('click', () => { getSong().bpm = null; saveState(); render(); });
 
   // Setlist controls
   document.querySelectorAll('.setlist-add').forEach(el => {
@@ -2293,9 +2493,16 @@ function attachPerformEvents() {
       return;
     }
 
+    // Band mode toggle
+    if (e.target.id === 'band-toggle' || e.target.closest('#band-toggle')) {
+      e.stopPropagation();
+      toggleBandMode();
+      return;
+    }
+
     if (e.target.id === 'perf-play' || e.target.closest('#perf-play')) {
       e.stopPropagation();
-      performTogglePlay();
+      if (state.bandMode) { bandBeatTap(); } else { performTogglePlay(); }
       return;
     }
 
@@ -2343,8 +2550,8 @@ function attachPerformEvents() {
 
     if (e.target.closest('.perf-controls')) return;
 
-    // Tap anywhere on lyrics = play/pause
-    performTogglePlay();
+    // Band mode: tap = beat, Backing track: tap = play/pause
+    if (state.bandMode) { bandBeatTap(); } else { performTogglePlay(); }
   });
 
   // Touch support for lyrics area tap
@@ -2397,7 +2604,7 @@ document.addEventListener('keydown', (e) => {
     if (state.mode === 'rehearsal' && state.playing) {
       rehearsalTap();
     } else if (state.mode === 'perform') {
-      performTogglePlay();
+      if (state.bandMode) { bandBeatTap(); } else { performTogglePlay(); }
     } else {
       unlockAudio();
       togglePlay();
