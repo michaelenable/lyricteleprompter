@@ -1743,25 +1743,30 @@ function audioTick() {
 
   const ad = getAudio();
 
-  // Band mode: advance song time incrementally, scaled by current BPM ratio each frame
-  if (state.bandMode && state.playing && state.bandCalibrated && state.bandLiveBpm > 0) {
-    const now = performance.now();
-    const realDeltaMs = now - (state.bandLastFrame || now);
-    state.bandLastFrame = now;
-    if (realDeltaMs > 0 && realDeltaMs < 200) {
-      const song = getSong();
-      const originalBpm = song.bpm || Math.round(state.bandLiveBpm); // fallback to live BPM
-      const songDelta = (originalBpm / state.bandLiveBpm) * (realDeltaMs / 1000);
-      state.bandSongTime += songDelta;
+  // Skip time updates during a manual jump lock — jumpToLine handles time
+  const jumpLocked = performance.now() < jumpLockUntil;
+
+  if (!jumpLocked) {
+    // Band mode: advance song time incrementally, scaled by current BPM ratio each frame
+    if (state.bandMode && state.playing && state.bandCalibrated && state.bandLiveBpm > 0) {
+      const now = performance.now();
+      const realDeltaMs = now - (state.bandLastFrame || now);
+      state.bandLastFrame = now;
+      if (realDeltaMs > 0 && realDeltaMs < 200) {
+        const song = getSong();
+        const originalBpm = song.bpm || Math.round(state.bandLiveBpm);
+        const songDelta = (originalBpm / state.bandLiveBpm) * (realDeltaMs / 1000);
+        state.bandSongTime += songDelta;
+      }
+      state.currentTime = state.bandSongTime;
     }
-    state.currentTime = state.bandSongTime;
-  }
-  // Update currentTime from audio clock when audio is playing (backing track mode)
-  else if (ad && ad.playing) {
-    const ctx = getCtx();
-    state.currentTime = ctx.currentTime - ad.startTime;
-    if (state.currentTime > ad.duration) state.currentTime = ad.duration;
-    state.duration = ad.duration;
+    // Update currentTime from audio clock when audio is playing (backing track mode)
+    else if (ad && ad.playing) {
+      const ctx = getCtx();
+      state.currentTime = ctx.currentTime - ad.startTime;
+      if (state.currentTime > ad.duration) state.currentTime = ad.duration;
+      state.duration = ad.duration;
+    }
   }
 
   // Always update displays (timer, progress bar) — works for both audio and standalone timer
