@@ -736,6 +736,8 @@ let state = {
   // Setlist — ordered list of song IDs for performance
   setlist: [],
   setlistIndex: 0,
+  // Live timing offset — shifts lyrics earlier/later without modifying saved timings
+  lyricsOffset: 0,
 };
 
 // Performance mode tracking — avoids unnecessary DOM work
@@ -1025,6 +1027,19 @@ function tickTimer() {
 }
 
 // Unified play/pause for perform mode
+function nudgeLyrics(delta) {
+  state.lyricsOffset = Math.round((state.lyricsOffset + delta) * 10) / 10;
+  // Force line recalc
+  lastRenderedPerfLine = -999;
+  updatePerfDisplay();
+  // Update the offset display
+  const disp = document.getElementById('offset-display');
+  if (disp) {
+    disp.textContent = state.lyricsOffset === 0 ? 'SYNC' : (state.lyricsOffset > 0 ? '+' : '') + state.lyricsOffset.toFixed(1) + 's';
+    disp.style.color = state.lyricsOffset === 0 ? 'var(--text-muted)' : 'var(--accent)';
+  }
+}
+
 function performTogglePlay() {
   // iOS: unlock AudioContext on first user gesture
   unlockAudio();
@@ -1293,7 +1308,8 @@ function updatePerfDisplay() {
   const song = getSong();
   if (!song.timings || !song.timings.length) return;
 
-  const t = state.currentTime;
+  // Apply lyrics offset: positive = lyrics arrive earlier, negative = later
+  const t = state.currentTime + state.lyricsOffset;
   let line = -1; // -1 = before first timing, no line active yet
   for (let i = song.timings.length - 1; i >= 0; i--) {
     if (t >= song.timings[i]) {
@@ -1343,7 +1359,7 @@ function updatePerfCountdown() {
   const song = getSong();
   if (!song.timings || !song.timings.length) return;
 
-  const t = state.currentTime;
+  const t = state.currentTime + state.lyricsOffset;
   const line = state.performLine;
 
   // Find the next line's timing
@@ -1435,6 +1451,7 @@ function selectSong(id) {
   state.activeSong = id;
   state.rehearsalLine = 0;
   state.performLine = 0;
+  state.lyricsOffset = 0;
   lastRenderedPerfLine = -1;
   const ad = audioData[id];
   if (ad) {
@@ -1957,6 +1974,25 @@ function renderPerformance() {
             border-radius:8px; font-family:'DM Sans',sans-serif;
             font-size:14px; cursor:pointer; appearance:auto;
           ">${songOptions}</select>
+          <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
+            <button id="nudge-earlier" style="
+              width:44px; height:44px; border-radius:8px; border:2px solid #444;
+              background:#111; color:#aaa; font-size:18px; cursor:pointer;
+              display:flex; align-items:center; justify-content:center;
+              font-family:'Space Mono',monospace; touch-action:manipulation;
+            ">&laquo;</button>
+            <div id="offset-display" style="
+              font-family:'Space Mono',monospace; font-size:12px;
+              color:${state.lyricsOffset === 0 ? 'var(--text-muted)' : 'var(--accent)'};
+              min-width:50px; text-align:center;
+            ">${state.lyricsOffset === 0 ? 'SYNC' : (state.lyricsOffset > 0 ? '+' : '') + state.lyricsOffset.toFixed(1) + 's'}</div>
+            <button id="nudge-later" style="
+              width:44px; height:44px; border-radius:8px; border:2px solid #444;
+              background:#111; color:#aaa; font-size:18px; cursor:pointer;
+              display:flex; align-items:center; justify-content:center;
+              font-family:'Space Mono',monospace; touch-action:manipulation;
+            ">&raquo;</button>
+          </div>
           <div class="time-display" style="min-width:110px; font-size:13px;">
             ${formatTime(state.currentTime)} / ${formatTime(dur)}
           </div>
@@ -2193,6 +2229,18 @@ function attachPerformEvents() {
       return;
     }
 
+    // Nudge lyrics earlier/later
+    if (e.target.id === 'nudge-earlier' || e.target.closest('#nudge-earlier')) {
+      e.stopPropagation();
+      nudgeLyrics(0.5);
+      return;
+    }
+    if (e.target.id === 'nudge-later' || e.target.closest('#nudge-later')) {
+      e.stopPropagation();
+      nudgeLyrics(-0.5);
+      return;
+    }
+
     const progBar = e.target.closest('#perf-progress-bar');
     if (progBar) {
       e.stopPropagation();
@@ -2278,6 +2326,13 @@ document.addEventListener('keydown', (e) => {
     }
     if (e.code === 'ArrowLeft' || e.code === 'ArrowUp') {
       performPrevSong();
+    }
+    // [ and ] nudge lyrics timing
+    if (e.code === 'BracketLeft') {
+      nudgeLyrics(0.5);
+    }
+    if (e.code === 'BracketRight') {
+      nudgeLyrics(-0.5);
     }
   }
 });
