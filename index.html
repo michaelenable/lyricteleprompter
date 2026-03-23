@@ -476,8 +476,6 @@
     line-height: 1.35;
     white-space: normal;
     word-wrap: break-word;
-    cursor: pointer;
-    -webkit-tap-highlight-color: rgba(255, 107, 53, 0.15);
     border-radius: 8px;
     transition:
       font-size 0.4s cubic-bezier(0.22, 1, 0.36, 1),
@@ -2621,29 +2619,45 @@ function attachPerformEvents() {
 
     if (e.target.closest('.perf-controls')) return;
 
-    // Tap on a lyric line to jump to it
-    const tappedLine = e.target.closest('.perf-line');
-    if (tappedLine && tappedLine.dataset.idx != null) {
-      const idx = parseInt(tappedLine.dataset.idx);
-      if (idx !== state.performLine) {
-        jumpToLine(idx);
-        return;
-      }
-    }
-
-    // Band mode: tap anywhere = beat tap. Backing track: do nothing (play button only)
+    // Band mode: tap anywhere = beat tap
     if (state.bandMode) { bandBeatTap(); }
   });
 
-  // Touch support for lyrics area tap
+  // Swipe up/down on lyrics to move lines — touch
+  let touchStartY = 0;
+  let touchStartLine = 0;
   const lyricsArea = document.getElementById('perf-lyrics-area');
   if (lyricsArea) {
-    lyricsArea.addEventListener('touchend', (e) => {
-      // Only handle taps on the lyrics area itself, not controls
+    lyricsArea.addEventListener('touchstart', (e) => {
       if (e.target.closest('.perf-controls')) return;
+      touchStartY = e.touches[0].clientY;
+      touchStartLine = state.performLine;
+    }, { passive: true });
+
+    lyricsArea.addEventListener('touchmove', (e) => {
+      if (e.target.closest('.perf-controls')) return;
+      const deltaY = touchStartY - e.touches[0].clientY;
+      const lineHeight = 80; // approximate pixels per line step
+      const lineDelta = Math.round(deltaY / lineHeight);
+      if (lineDelta !== 0) {
+        const targetLine = Math.max(-1, Math.min(touchStartLine + lineDelta, getLines().length - 1));
+        if (targetLine !== state.performLine && targetLine >= 0) {
+          jumpToLine(targetLine);
+        }
+      }
+    }, { passive: true });
+  }
+
+  // Mouse wheel on lyrics to move lines
+  if (lyricsArea) {
+    lyricsArea.addEventListener('wheel', (e) => {
       e.preventDefault();
-      performTogglePlay();
-    });
+      const dir = e.deltaY > 0 ? 1 : -1;
+      const targetLine = state.performLine + dir;
+      if (targetLine >= 0 && targetLine < getLines().length) {
+        jumpToLine(targetLine);
+      }
+    }, { passive: false });
   }
 
   view.addEventListener('change', function(e) {
