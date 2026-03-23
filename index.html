@@ -555,14 +555,14 @@
     left: 0;
     right: 0;
     background: linear-gradient(transparent, rgba(0,0,0,0.95) 30%);
-    padding: 30px 24px 16px;
-    padding-bottom: calc(16px + var(--sai-bottom));
+    padding: 40px 24px 20px;
+    padding-bottom: calc(20px + var(--sai-bottom));
     padding-left: calc(24px + var(--sai-left));
     padding-right: calc(24px + var(--sai-right));
     z-index: 20;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 14px;
     transition: opacity 0.4s ease;
   }
 
@@ -1949,59 +1949,59 @@ function renderPerformance() {
       </div>
 
       <div class="perf-controls">
-        <div class="progress-wrap" id="perf-progress-bar" style="height:8px;">
+        <div class="progress-wrap" id="perf-progress-bar" style="height:14px;">
           <div class="progress-fill" style="width:${Math.min(progress, 100)}%"></div>
         </div>
         <div style="display:flex; align-items:center; gap:12px;">
           <button id="perf-rewind" style="
-            width:44px; height:44px; border-radius:50%; border:2px solid #444;
-            background:#111; color:#aaa; font-size:18px; cursor:pointer;
+            width:88px; height:88px; border-radius:50%; border:2px solid #444;
+            background:#111; color:#aaa; font-size:36px; cursor:pointer;
             display:flex; align-items:center; justify-content:center;
             font-family:'DM Sans',sans-serif; flex-shrink:0;
             touch-action:manipulation;
           ">&#8634;</button>
           <button id="perf-play" style="
-            width:60px; height:60px; border-radius:50%; border:none;
+            width:120px; height:120px; border-radius:50%; border:none;
             background:${state.playing ? 'var(--green)' : 'var(--accent)'};
-            color:#000; font-size:24px; cursor:pointer;
+            color:#000; font-size:48px; cursor:pointer;
             display:flex; align-items:center; justify-content:center;
             flex-shrink:0; font-weight:bold;
             touch-action:manipulation;
           ">${state.playing ? '&#10074;&#10074;' : '&#9654;'}</button>
           <select id="perf-song-select" style="
-            flex:1; max-width:300px; padding:10px 14px;
+            flex:1; max-width:400px; padding:16px 20px;
             background:#111; color:var(--text); border:2px solid #444;
-            border-radius:8px; font-family:'DM Sans',sans-serif;
-            font-size:14px; cursor:pointer; appearance:auto;
+            border-radius:10px; font-family:'DM Sans',sans-serif;
+            font-size:22px; cursor:pointer; appearance:auto;
           ">${songOptions}</select>
           <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
             <button id="nudge-earlier" style="
-              width:44px; height:44px; border-radius:8px; border:2px solid #444;
-              background:#111; color:#aaa; font-size:18px; cursor:pointer;
+              width:88px; height:88px; border-radius:12px; border:2px solid #444;
+              background:#111; color:#aaa; font-size:36px; cursor:pointer;
               display:flex; align-items:center; justify-content:center;
               font-family:'Space Mono',monospace; touch-action:manipulation;
             ">&laquo;</button>
             <div id="offset-display" style="
-              font-family:'Space Mono',monospace; font-size:12px;
+              font-family:'Space Mono',monospace; font-size:22px;
               color:${state.lyricsOffset === 0 ? 'var(--text-muted)' : 'var(--accent)'};
-              min-width:50px; text-align:center;
+              min-width:80px; text-align:center;
             ">${state.lyricsOffset === 0 ? 'SYNC' : (state.lyricsOffset > 0 ? '+' : '') + state.lyricsOffset.toFixed(1) + 's'}</div>
             <button id="nudge-later" style="
-              width:44px; height:44px; border-radius:8px; border:2px solid #444;
-              background:#111; color:#aaa; font-size:18px; cursor:pointer;
+              width:88px; height:88px; border-radius:12px; border:2px solid #444;
+              background:#111; color:#aaa; font-size:36px; cursor:pointer;
               display:flex; align-items:center; justify-content:center;
               font-family:'Space Mono',monospace; touch-action:manipulation;
             ">&raquo;</button>
           </div>
-          <div class="time-display" style="min-width:110px; font-size:13px;">
+          <div class="time-display" style="min-width:160px; font-size:22px;">
             ${formatTime(state.currentTime)} / ${formatTime(dur)}
           </div>
           <button id="perf-exit" style="
-            padding:8px 16px; border-radius:6px; border:1px solid #444;
-            background:#111; color:#888; font-size:12px; cursor:pointer;
+            padding:16px 32px; border-radius:10px; border:1px solid #444;
+            background:#111; color:#888; font-size:24px; cursor:pointer;
             font-family:'DM Sans',sans-serif; flex-shrink:0;
             touch-action:manipulation;
-          ">ESC Exit</button>
+          ">Exit</button>
         </div>
       </div>
     </div>
