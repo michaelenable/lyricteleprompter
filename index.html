@@ -751,7 +751,96 @@ SONGS.forEach(s => {
 });
 
 // ==============================
-// Storage — localStorage (works offline, no external deps)
+// Cloud Sync — Azure Blob Storage
+// ==============================
+const SYNC_URL = 'https://stenablealerts.blob.core.windows.net/teleprompter/data.json?se=2027-12-31T00%3A00%3A00Z&sp=rw&spr=https&sv=2026-02-06&sr=c&sig=nNaaYgz3U2NDX8c6wYruvIAoyFUljJfLxFy4nGVcBos%3D';
+let syncInProgress = false;
+
+function getFullSyncPayload() {
+  const songData = {};
+  Object.keys(state.songs).forEach(id => {
+    songData[id] = {
+      lyrics: state.songs[id].lyrics,
+      timings: state.songs[id].timings,
+      audioFile: state.songs[id].audioFile || null
+    };
+  });
+  return { songs: SONGS, songData: songData, setlist: state.setlist, savedAt: new Date().toISOString() };
+}
+
+async function cloudSave() {
+  if (syncInProgress) return;
+  syncInProgress = true;
+  try {
+    const payload = JSON.stringify(getFullSyncPayload());
+    await fetch(SYNC_URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-ms-blob-type': 'BlockBlob' },
+      body: payload
+    });
+    console.log('Cloud sync: saved');
+  } catch(e) {
+    console.warn('Cloud sync save failed:', e);
+  }
+  syncInProgress = false;
+}
+
+async function cloudLoad() {
+  try {
+    const resp = await fetch(SYNC_URL, { method: 'GET' });
+    if (!resp.ok) {
+      console.log('Cloud sync: no data yet (status ' + resp.status + ')');
+      return false;
+    }
+    const payload = await resp.json();
+
+    // Restore song list
+    if (payload.songs && payload.songs.length) {
+      SONGS = payload.songs;
+      nextSongId = Math.max(...SONGS.map(s => s.id)) + 1;
+      SONGS.forEach(s => {
+        if (!state.songs[s.id]) state.songs[s.id] = { lyrics: '', timings: [], audioFile: null };
+      });
+    }
+
+    // Restore song data
+    if (payload.songData) {
+      Object.keys(payload.songData).forEach(id => {
+        if (state.songs[id]) {
+          state.songs[id].lyrics = payload.songData[id].lyrics || '';
+          state.songs[id].timings = payload.songData[id].timings || [];
+          state.songs[id].audioFile = payload.songData[id].audioFile || null;
+        }
+      });
+    }
+
+    // Restore setlist
+    if (payload.setlist) {
+      state.setlist = payload.setlist.filter(id => SONGS.find(s => s.id === id));
+    }
+
+    // Make sure activeSong is valid
+    if (!SONGS.find(s => s.id === state.activeSong) && SONGS.length) {
+      state.activeSong = SONGS[0].id;
+    }
+
+    console.log('Cloud sync: loaded (' + SONGS.length + ' songs, saved ' + (payload.savedAt || 'unknown') + ')');
+    return true;
+  } catch(e) {
+    console.warn('Cloud sync load failed:', e);
+    return false;
+  }
+}
+
+// Debounced cloud save — waits 2s after last change before syncing
+let cloudSaveTimer = null;
+function scheduleCloudSave() {
+  clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = setTimeout(cloudSave, 2000);
+}
+
+// ==============================
+// Storage — localStorage + cloud sync
 // ==============================
 function loadState() {
   try {
@@ -818,6 +907,9 @@ function saveState() {
 
     // Save setlist
     localStorage.setItem('teleprompter-setlist', JSON.stringify(state.setlist));
+
+    // Sync to cloud (debounced)
+    scheduleCloudSave();
   } catch(e) {
     console.error('Save error:', e);
   }
@@ -2232,12 +2324,12 @@ function attachPerformEvents() {
     // Nudge lyrics earlier/later
     if (e.target.id === 'nudge-earlier' || e.target.closest('#nudge-earlier')) {
       e.stopPropagation();
-      nudgeLyrics(0.5);
+      nudgeLyrics(-0.5);
       return;
     }
     if (e.target.id === 'nudge-later' || e.target.closest('#nudge-later')) {
       e.stopPropagation();
-      nudgeLyrics(-0.5);
+      nudgeLyrics(0.5);
       return;
     }
 
@@ -2329,10 +2421,10 @@ document.addEventListener('keydown', (e) => {
     }
     // [ and ] nudge lyrics timing
     if (e.code === 'BracketLeft') {
-      nudgeLyrics(0.5);
+      nudgeLyrics(-0.5);
     }
     if (e.code === 'BracketRight') {
-      nudgeLyrics(-0.5);
+      nudgeLyrics(0.5);
     }
   }
 });
@@ -2340,8 +2432,16 @@ document.addEventListener('keydown', (e) => {
 // ==============================
 // Init
 // ==============================
+// Load localStorage first (instant), render, then try cloud sync in background
 loadState();
 render();
+cloudLoad().then(loaded => {
+  if (loaded) {
+    // Cloud had newer data — also update localStorage and re-render
+    saveState();
+    render();
+  }
+});
 </script>
 
 </body>
