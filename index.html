@@ -2356,6 +2356,20 @@ function renderPerformance() {
             flex-shrink:0; font-weight:bold;
             touch-action:manipulation;
           ">${state.playing ? '&#10074;&#10074;' : '&#9654;'}</button>
+          <div style="display:flex; flex-direction:column; gap:4px; flex-shrink:0;">
+            <button id="line-up" style="
+              width:88px; height:56px; border-radius:10px; border:2px solid #444;
+              background:#111; color:#aaa; font-size:28px; cursor:pointer;
+              display:flex; align-items:center; justify-content:center;
+              touch-action:manipulation;
+            ">&#9650;</button>
+            <button id="line-down" style="
+              width:88px; height:56px; border-radius:10px; border:2px solid #444;
+              background:#111; color:#aaa; font-size:28px; cursor:pointer;
+              display:flex; align-items:center; justify-content:center;
+              touch-action:manipulation;
+            ">&#9660;</button>
+          </div>
           <select id="perf-song-select" style="
             flex:1; max-width:400px; padding:16px 20px;
             background:#111; color:var(--text); border:2px solid #444;
@@ -2615,6 +2629,20 @@ function attachPerformEvents() {
       return;
     }
 
+    // Line up/down buttons
+    if (e.target.id === 'line-up' || e.target.closest('#line-up')) {
+      e.stopPropagation();
+      const target = state.performLine - 1;
+      if (target >= 0) jumpToLine(target);
+      return;
+    }
+    if (e.target.id === 'line-down' || e.target.closest('#line-down')) {
+      e.stopPropagation();
+      const target = state.performLine + 1;
+      if (target < getLines().length) jumpToLine(target);
+      return;
+    }
+
     if (e.target.id === 'perf-rewind' || e.target.closest('#perf-rewind')) {
       e.stopPropagation();
       if (state.playing) {
@@ -2663,45 +2691,13 @@ function attachPerformEvents() {
     if (state.bandMode) { bandBeatTap(); }
   });
 
-  // Swipe up/down on lyrics to move lines — touch
-  let touchStartY = 0;
-  let touchStartLine = 0;
+  // Touch support for band mode beat tap on lyrics area
   const lyricsArea = document.getElementById('perf-lyrics-area');
   if (lyricsArea) {
     lyricsArea.addEventListener('touchstart', (e) => {
       if (e.target.closest('.perf-controls')) return;
-      touchStartY = e.touches[0].clientY;
-      touchStartLine = state.performLine;
-    }, { passive: true });
-
-    lyricsArea.addEventListener('touchmove', (e) => {
-      if (e.target.closest('.perf-controls')) return;
-      const deltaY = touchStartY - e.touches[0].clientY;
-      const lineHeight = 80; // approximate pixels per line step
-      const lineDelta = Math.round(deltaY / lineHeight);
-      if (lineDelta !== 0) {
-        const targetLine = Math.max(-1, Math.min(touchStartLine + lineDelta, getLines().length - 1));
-        if (targetLine !== state.performLine && targetLine >= 0) {
-          jumpToLine(targetLine);
-        }
-      }
-    }, { passive: true });
-  }
-
-  // Mouse wheel on lyrics to move lines (debounced)
-  let wheelCooldown = false;
-  if (lyricsArea) {
-    lyricsArea.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      if (wheelCooldown) return;
-      wheelCooldown = true;
-      setTimeout(() => { wheelCooldown = false; }, 200);
-      const dir = e.deltaY > 0 ? 1 : -1;
-      const targetLine = state.performLine + dir;
-      if (targetLine >= 0 && targetLine < getLines().length) {
-        jumpToLine(targetLine);
-      }
-    }, { passive: false });
+      if (state.bandMode) { e.preventDefault(); bandBeatTap(); }
+    });
   }
 
   view.addEventListener('change', function(e) {
