@@ -473,6 +473,8 @@
     max-width: 85vw;
     width: 100%;
     padding: 8px 20px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: rgba(255, 107, 53, 0.2);
     line-height: 1.35;
     white-space: normal;
     word-wrap: break-word;
@@ -1280,35 +1282,30 @@ function jumpToLine(idx) {
   const song = getSong();
   if (!song.timings || idx < 0 || idx >= song.timings.length) return;
 
+  // Don't seek audio — just shift the lyrics offset so currentTime maps to this line.
+  // Audio keeps playing undisturbed, relative timing between lines is preserved.
   const targetTime = song.timings[idx];
 
-  // Lock line position for 500ms so audioTick doesn't override
-  jumpLockUntil = performance.now() + 500;
-
   if (state.bandMode) {
+    // In band mode, shift bandSongTime directly
     state.bandSongTime = targetTime;
     state.bandLastFrame = performance.now();
+    state.currentTime = targetTime;
+  } else {
+    // Adjust lyricsOffset: we need (currentTime + offset) = targetTime
+    state.lyricsOffset = targetTime - state.currentTime;
   }
 
-  // Set time directly — works for both audio and timer modes
-  state.currentTime = targetTime;
-  state.timerOffset = targetTime;
-  state.timerStart = performance.now() - (targetTime * 1000);
-
-  // Seek audio if playing
-  const ad = getAudio();
-  if (ad) {
-    ad.pauseOffset = targetTime;
-    if (ad.playing) {
-      startPlayback(ad, targetTime);
-    }
+  // Update offset display
+  const disp = document.getElementById('offset-display');
+  if (disp) {
+    disp.textContent = state.lyricsOffset === 0 ? 'SYNC' : (state.lyricsOffset > 0 ? '+' : '') + state.lyricsOffset.toFixed(1) + 's';
+    disp.style.color = state.lyricsOffset === 0 ? 'var(--text-muted)' : 'var(--accent)';
   }
 
   // Force display update
-  state.performLine = idx;
   lastRenderedPerfLine = -999;
   updatePerfDisplay();
-  updateTimeDisplays();
 }
 
 function nudgeLyrics(delta) {
@@ -1605,30 +1602,6 @@ function updatePerfDisplay() {
   const song = getSong();
   if (!song.timings || !song.timings.length) return;
 
-  // If a manual jump is active, honour it and skip auto-calculation
-  if (performance.now() < jumpLockUntil) {
-    const line = state.performLine;
-    if (line !== lastRenderedPerfLine) {
-      lastRenderedPerfLine = line;
-      const els = document.querySelectorAll('#perf-scroll .perf-line');
-      for (let i = 0; i < els.length; i++) {
-        const dist = line === -1 ? (i + 1) : (i - line);
-        let cls = 'perf-line';
-        if (els[i].dataset.section === '1') cls += ' section-marker';
-        if (dist < -3) cls += ' distant-past';
-        else if (dist < 0) cls += ' past';
-        else if (dist === 0) cls += ' current';
-        else if (dist === 1) cls += ' next';
-        else if (dist === 2) cls += ' next-2';
-        else if (dist <= 5) cls += ' far';
-        else cls += ' distant-far';
-        els[i].className = cls;
-      }
-      if (line >= 0) scrollPerfTo(line, els);
-    }
-    return;
-  }
-
   // Apply lyrics offset: positive = lyrics arrive earlier, negative = later
   const t = state.currentTime + state.lyricsOffset;
   let line = -1; // -1 = before first timing, no line active yet
@@ -1743,30 +1716,25 @@ function audioTick() {
 
   const ad = getAudio();
 
-  // Skip time updates during a manual jump lock — jumpToLine handles time
-  const jumpLocked = performance.now() < jumpLockUntil;
-
-  if (!jumpLocked) {
-    // Band mode: advance song time incrementally, scaled by current BPM ratio each frame
-    if (state.bandMode && state.playing && state.bandCalibrated && state.bandLiveBpm > 0) {
-      const now = performance.now();
-      const realDeltaMs = now - (state.bandLastFrame || now);
-      state.bandLastFrame = now;
-      if (realDeltaMs > 0 && realDeltaMs < 200) {
-        const song = getSong();
-        const originalBpm = song.bpm || Math.round(state.bandLiveBpm);
-        const songDelta = (originalBpm / state.bandLiveBpm) * (realDeltaMs / 1000);
-        state.bandSongTime += songDelta;
-      }
-      state.currentTime = state.bandSongTime;
+  // Band mode: advance song time incrementally, scaled by current BPM ratio each frame
+  if (state.bandMode && state.playing && state.bandCalibrated && state.bandLiveBpm > 0) {
+    const now = performance.now();
+    const realDeltaMs = now - (state.bandLastFrame || now);
+    state.bandLastFrame = now;
+    if (realDeltaMs > 0 && realDeltaMs < 200) {
+      const song = getSong();
+      const originalBpm = song.bpm || Math.round(state.bandLiveBpm);
+      const songDelta = (originalBpm / state.bandLiveBpm) * (realDeltaMs / 1000);
+      state.bandSongTime += songDelta;
     }
-    // Update currentTime from audio clock when audio is playing (backing track mode)
-    else if (ad && ad.playing) {
-      const ctx = getCtx();
-      state.currentTime = ctx.currentTime - ad.startTime;
-      if (state.currentTime > ad.duration) state.currentTime = ad.duration;
-      state.duration = ad.duration;
-    }
+    state.currentTime = state.bandSongTime;
+  }
+  // Update currentTime from audio clock when audio is playing (backing track mode)
+  else if (ad && ad.playing) {
+    const ctx = getCtx();
+    state.currentTime = ctx.currentTime - ad.startTime;
+    if (state.currentTime > ad.duration) state.currentTime = ad.duration;
+    state.duration = ad.duration;
   }
 
   // Always update displays (timer, progress bar) — works for both audio and standalone timer
@@ -2686,6 +2654,16 @@ function attachPerformEvents() {
     }
 
     if (e.target.closest('.perf-controls')) return;
+
+    // Tap a lyric line to jump to it (shifts offset, audio keeps playing)
+    const tappedLine = e.target.closest('.perf-line');
+    if (tappedLine && tappedLine.dataset.idx != null) {
+      const idx = parseInt(tappedLine.dataset.idx);
+      if (idx !== state.performLine) {
+        jumpToLine(idx);
+        return;
+      }
+    }
 
     // Band mode: tap anywhere = beat tap
     if (state.bandMode) { bandBeatTap(); }
