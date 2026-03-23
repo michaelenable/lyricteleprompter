@@ -733,6 +733,9 @@ let state = {
   modalData: '',
   timerStart: 0,
   timerOffset: 0,
+  // Setlist — ordered list of song IDs for performance
+  setlist: [],
+  setlistIndex: 0,
 };
 
 // Performance mode tracking — avoids unnecessary DOM work
@@ -778,6 +781,14 @@ function loadState() {
       });
     }
 
+    // Restore setlist
+    const setlistRaw = localStorage.getItem('teleprompter-setlist');
+    if (setlistRaw) {
+      const saved = JSON.parse(setlistRaw);
+      // Filter out any song IDs that no longer exist
+      state.setlist = saved.filter(id => SONGS.find(s => s.id === id));
+    }
+
     // Make sure activeSong is valid
     if (!SONGS.find(s => s.id === state.activeSong) && SONGS.length) {
       state.activeSong = SONGS[0].id;
@@ -802,6 +813,9 @@ function saveState() {
       };
     });
     localStorage.setItem('teleprompter-data', JSON.stringify(data));
+
+    // Save setlist
+    localStorage.setItem('teleprompter-setlist', JSON.stringify(state.setlist));
   } catch(e) {
     console.error('Save error:', e);
   }
@@ -829,8 +843,9 @@ function renameSong(id, newName) {
 }
 
 function deleteSong(id) {
-  if (SONGS.length <= 1) return; // keep at least one
+  if (SONGS.length <= 1) return;
   SONGS = SONGS.filter(s => s.id !== id);
+  state.setlist = state.setlist.filter(sid => sid !== id);
   delete state.songs[id];
   delete audioData[id];
   delete state.audioElements[id];
@@ -839,6 +854,40 @@ function deleteSong(id) {
   }
   saveState();
   render();
+}
+
+// Setlist-aware navigation for perform mode
+function getPerformList() {
+  // If setlist has songs, use it; otherwise fall back to all songs with timings
+  if (state.setlist.length > 0) {
+    return state.setlist.map(id => SONGS.find(s => s.id === id)).filter(Boolean);
+  }
+  return SONGS.filter(s => {
+    const d = state.songs[s.id];
+    return d && d.lyrics && d.lyrics.trim() && d.timings && d.timings.length > 0;
+  });
+}
+
+function performNextSong() {
+  const list = getPerformList();
+  const idx = list.findIndex(s => s.id === state.activeSong);
+  if (idx < list.length - 1) {
+    selectSong(list[idx + 1].id);
+    state.setlistIndex = idx + 1;
+    return true;
+  }
+  return false;
+}
+
+function performPrevSong() {
+  const list = getPerformList();
+  const idx = list.findIndex(s => s.id === state.activeSong);
+  if (idx > 0) {
+    selectSong(list[idx - 1].id);
+    state.setlistIndex = idx - 1;
+    return true;
+  }
+  return false;
 }
 
 // ==============================
@@ -1106,9 +1155,7 @@ async function startPlayback(ad, offset) {
     state.currentTime = ad.duration;
 
     if (state.mode === 'perform') {
-      const idx = SONGS.findIndex(s => s.id === state.activeSong);
-      if (idx < SONGS.length - 1) {
-        selectSong(SONGS[idx + 1].id);
+      if (performNextSong()) {
         setTimeout(() => performTogglePlay(), 500);
       } else {
         updatePerfControls();
@@ -1424,6 +1471,12 @@ function setMode(m) {
     const ad = getAudio();
     if (ad) { playGeneration++; stopSource(ad); ad.playing = false; ad.pauseOffset = 0; }
     state.currentTime = 0;
+    // Start on first setlist song if setlist exists
+    const perfList = getPerformList();
+    if (perfList.length > 0) {
+      state.activeSong = perfList[0].id;
+      state.setlistIndex = 0;
+    }
   }
 
   render();
@@ -1567,12 +1620,13 @@ function render() {
           <div class="mode-tabs">
             <button class="mode-tab ${state.mode === 'setup' ? 'active' : ''}" data-mode="setup">Setup</button>
             <button class="mode-tab ${state.mode === 'rehearsal' ? 'active' : ''}" data-mode="rehearsal">Rehearse</button>
+            <button class="mode-tab ${state.mode === 'setlist' ? 'active' : ''}" data-mode="setlist">Setlist</button>
           </div>
           <div class="toolbar-spacer"></div>
           ${canPerform() ? `<button class="btn btn-accent" id="go-perform">&#9654; Perform</button>` : ''}
         </div>
         <div class="content">
-          ${state.mode === 'setup' ? renderSetup() : renderRehearsal()}
+          ${state.mode === 'setup' ? renderSetup() : state.mode === 'setlist' ? renderSetlist() : renderRehearsal()}
         </div>
         ${renderAudioBar()}
       </div>
@@ -1693,6 +1747,83 @@ function renderSetup() {
   `;
 }
 
+function renderSetlist() {
+  const available = SONGS.filter(s => {
+    const d = state.songs[s.id];
+    return d && d.lyrics && d.lyrics.trim() && d.timings && d.timings.length > 0;
+  });
+
+  const setlistSongs = state.setlist
+    .map(id => SONGS.find(s => s.id === id))
+    .filter(Boolean);
+
+  return `
+    <div style="max-width:700px; display:flex; gap:20px;">
+      <div style="flex:1;">
+        <div class="setup-card">
+          <h3>Setlist (${setlistSongs.length} songs)</h3>
+          ${setlistSongs.length === 0 ? `
+            <div style="color:var(--text-muted); font-size:13px; padding:12px 0;">
+              No songs in setlist. Add songs from the available list.
+            </div>
+          ` : `
+            <div id="setlist-items">
+              ${setlistSongs.map((s, i) => `
+                <div class="setlist-item" data-idx="${i}" style="
+                  display:flex; align-items:center; gap:8px; padding:8px 10px;
+                  background:var(--bg); border:1px solid var(--border); border-radius:6px;
+                  margin-bottom:4px; font-size:13px;
+                ">
+                  <span style="font-family:'Space Mono',monospace; font-size:11px; color:var(--text-dim); min-width:18px;">${i + 1}</span>
+                  <span style="flex:1;">${escHtml(s.name)}</span>
+                  <button class="setlist-up" data-idx="${i}" style="padding:2px 6px; background:var(--bg-card); border:1px solid var(--border); border-radius:4px; color:var(--text-dim); cursor:pointer; font-size:11px;" ${i === 0 ? 'disabled' : ''}>&#9650;</button>
+                  <button class="setlist-down" data-idx="${i}" style="padding:2px 6px; background:var(--bg-card); border:1px solid var(--border); border-radius:4px; color:var(--text-dim); cursor:pointer; font-size:11px;" ${i === setlistSongs.length - 1 ? 'disabled' : ''}>&#9660;</button>
+                  <button class="setlist-remove" data-idx="${i}" style="padding:2px 6px; background:var(--bg-card); border:1px solid var(--border); border-radius:4px; color:var(--red); cursor:pointer; font-size:11px;">&#10005;</button>
+                </div>
+              `).join('')}
+            </div>
+          `}
+          ${setlistSongs.length > 0 ? `
+            <div style="margin-top:10px; display:flex; gap:6px;">
+              <button class="btn btn-red" style="font-size:11px; padding:5px 10px;" id="clear-setlist">Clear All</button>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+      <div style="flex:1;">
+        <div class="setup-card">
+          <h3>Available Songs</h3>
+          ${available.length === 0 ? `
+            <div style="color:var(--text-muted); font-size:13px; padding:12px 0;">
+              No songs with lyrics + timings. Set up and rehearse songs first.
+            </div>
+          ` : `
+            ${available.map(s => {
+              const inSetlist = state.setlist.includes(s.id);
+              return `
+                <div style="
+                  display:flex; align-items:center; gap:8px; padding:8px 10px;
+                  background:${inSetlist ? 'var(--green-dim)' : 'var(--bg)'};
+                  border:1px solid var(--border); border-radius:6px;
+                  margin-bottom:4px; font-size:13px;
+                ">
+                  <span style="flex:1;">${escHtml(s.name)}</span>
+                  <button class="setlist-add" data-id="${s.id}" style="
+                    padding:4px 10px; background:${inSetlist ? 'var(--bg-card)' : 'var(--accent)'};
+                    border:1px solid ${inSetlist ? 'var(--border)' : 'var(--accent)'};
+                    border-radius:4px; color:${inSetlist ? 'var(--text-dim)' : '#fff'};
+                    cursor:pointer; font-size:11px; font-family:'DM Sans',sans-serif;
+                  ">${inSetlist ? 'Added' : '+ Add'}</button>
+                </div>
+              `;
+            }).join('')}
+          `}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderRehearsal() {
   const song = getSong();
   const lines = getLines();
@@ -1749,11 +1880,10 @@ function renderPerformance() {
   const dur = ad ? ad.duration : (song.timings && song.timings.length ? song.timings[song.timings.length - 1] + 5 : 0);
   const progress = dur ? (state.currentTime / dur) * 100 : 0;
 
-  const songOptions = SONGS.map(s => {
-    const sd = state.songs[s.id];
-    const hasTiming = sd.timings && sd.timings.length > 0;
+  const perfList = getPerformList();
+  const songOptions = perfList.map((s, i) => {
     const sel = s.id === state.activeSong ? 'selected' : '';
-    return `<option value="${s.id}" ${sel}>${s.name}${hasTiming ? '' : ' (no timing)'}</option>`;
+    return `<option value="${s.id}" ${sel}>${i + 1}. ${s.name}</option>`;
   }).join('');
 
   const statusText = !lines.length
@@ -1772,12 +1902,23 @@ function renderPerformance() {
     return `<div class="${cls}" data-idx="${i}" data-section="${isSection ? '1' : '0'}">${escHtml(line)}</div>`;
   }).join('');
 
+  const perfListIdx = perfList.findIndex(s => s.id === state.activeSong);
+  const songMeta = SONGS.find(s => s.id === state.activeSong);
+
   return `
     <div class="performance-view show-cursor" id="perf-view">
       <div class="perf-timer" id="perf-timer" style="
         color:${state.playing ? 'var(--green)' : 'var(--accent)'};
         text-shadow: 0 0 40px ${state.playing ? 'var(--green)' : 'var(--accent)'};
       ">${formatTime(state.currentTime)}</div>
+      ${perfList.length > 1 ? `
+        <div style="position:absolute; top:12px; left:20px; z-index:10; pointer-events:none;">
+          <div style="font-family:'Space Mono',monospace; font-size:11px; color:var(--text-muted); letter-spacing:1px;">
+            ${perfListIdx + 1} / ${perfList.length}
+          </div>
+          <div style="font-size:13px; color:var(--accent); margin-top:2px;">${escHtml(songMeta ? songMeta.name : '')}</div>
+        </div>
+      ` : ''}
 
       <div class="perf-lyrics" id="perf-lyrics-area">
         <div class="perf-status" id="perf-status" style="opacity:${statusText ? '1' : '0'};">${statusText}</div>
@@ -1895,6 +2036,39 @@ function attachEvents() {
       deleteSong(state.activeSong);
     }
   });
+
+  // Setlist controls
+  document.querySelectorAll('.setlist-add').forEach(el => {
+    el.addEventListener('click', () => {
+      const id = parseInt(el.dataset.id);
+      if (!state.setlist.includes(id)) {
+        state.setlist.push(id);
+        saveState();
+        render();
+      }
+    });
+  });
+  document.querySelectorAll('.setlist-remove').forEach(el => {
+    el.addEventListener('click', () => {
+      state.setlist.splice(parseInt(el.dataset.idx), 1);
+      saveState();
+      render();
+    });
+  });
+  document.querySelectorAll('.setlist-up').forEach(el => {
+    el.addEventListener('click', () => {
+      const i = parseInt(el.dataset.idx);
+      if (i > 0) { [state.setlist[i-1], state.setlist[i]] = [state.setlist[i], state.setlist[i-1]]; saveState(); render(); }
+    });
+  });
+  document.querySelectorAll('.setlist-down').forEach(el => {
+    el.addEventListener('click', () => {
+      const i = parseInt(el.dataset.idx);
+      if (i < state.setlist.length - 1) { [state.setlist[i], state.setlist[i+1]] = [state.setlist[i+1], state.setlist[i]]; saveState(); render(); }
+    });
+  });
+  const clearSetlist = document.getElementById('clear-setlist');
+  if (clearSetlist) clearSetlist.addEventListener('click', () => { state.setlist = []; saveState(); render(); });
 
   const playBtn = document.getElementById('play-btn');
   if (playBtn) playBtn.addEventListener('click', () => { unlockAudio(); togglePlay(); });
@@ -2100,12 +2274,10 @@ document.addEventListener('keydown', (e) => {
 
   if (state.mode === 'perform') {
     if (e.code === 'ArrowRight' || e.code === 'ArrowDown') {
-      const idx = SONGS.findIndex(s => s.id === state.activeSong);
-      if (idx < SONGS.length - 1) selectSong(SONGS[idx + 1].id);
+      performNextSong();
     }
     if (e.code === 'ArrowLeft' || e.code === 'ArrowUp') {
-      const idx = SONGS.findIndex(s => s.id === state.activeSong);
-      if (idx > 0) selectSong(SONGS[idx - 1].id);
+      performPrevSong();
     }
   }
 });
