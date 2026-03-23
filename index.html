@@ -2630,8 +2630,8 @@ function attachPerformEvents() {
       }
     }
 
-    // Band mode: tap = beat, Backing track: tap = play/pause
-    if (state.bandMode) { bandBeatTap(); } else { performTogglePlay(); }
+    // Band mode: tap anywhere = beat tap. Backing track: do nothing (play button only)
+    if (state.bandMode) { bandBeatTap(); }
   });
 
   // Touch support for lyrics area tap
@@ -2684,7 +2684,8 @@ document.addEventListener('keydown', (e) => {
     if (state.mode === 'rehearsal' && state.playing) {
       rehearsalTap();
     } else if (state.mode === 'perform') {
-      if (state.bandMode) { bandBeatTap(); } else { performTogglePlay(); }
+      if (state.bandMode) { bandBeatTap(); }
+      // Backing track: spacebar does nothing — use play button only
     } else {
       unlockAudio();
       togglePlay();
