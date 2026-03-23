@@ -582,23 +582,45 @@
 
   .perf-countdown {
     position: absolute;
-    bottom: 100px;
+    bottom: 90px;
     left: 50%;
     transform: translateX(-50%);
-    font-family: 'Space Mono', monospace;
-    font-size: 72px;
-    font-weight: 700;
-    color: var(--accent);
-    text-shadow: 0 0 50px var(--accent-glow);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
     pointer-events: none;
     z-index: 5;
     opacity: 0;
     transition: opacity 0.3s ease;
-    letter-spacing: 4px;
+    width: 60%;
+    max-width: 500px;
   }
 
-  .perf-countdown.visible {
-    opacity: 1;
+  .perf-countdown.visible { opacity: 1; }
+
+  .perf-countdown .cd-seconds {
+    font-family: 'Space Mono', monospace;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 2px;
+  }
+
+  .perf-countdown .cd-bar-track {
+    width: 100%;
+    height: 6px;
+    background: #1a1a1a;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .perf-countdown .cd-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: none;
+    box-shadow: 0 0 12px var(--accent-glow);
   }
 
   /* ============ Responsive: iPad/tablet ============ */
@@ -1259,15 +1281,15 @@ function updatePerfDisplay() {
   if (line >= 0) scrollPerfTo(line, lineEls);
 }
 
-// Countdown timer — shows seconds until next line during gaps > 3s
-let lastCountdownVal = -1;
+// Countdown bar + seconds until next line during gaps
+let countdownTotalGap = 0; // total gap when countdown started
 function updatePerfCountdown() {
   const el = document.getElementById('perf-countdown');
-  if (!el || !state.playing) {
-    if (el && el.classList.contains('visible')) {
-      el.classList.remove('visible');
-      lastCountdownVal = -1;
-    }
+  const secEl = document.getElementById('cd-seconds');
+  const barEl = document.getElementById('cd-bar-fill');
+  if (!el || !secEl || !barEl || !state.playing) {
+    if (el && el.classList.contains('visible')) el.classList.remove('visible');
+    countdownTotalGap = 0;
     return;
   }
 
@@ -1281,30 +1303,35 @@ function updatePerfCountdown() {
   const nextIdx = line + 1;
   let nextTime;
   if (line === -1) {
-    // Before first line — count down to first timing
     nextTime = song.timings[0];
   } else if (nextIdx < song.timings.length) {
     nextTime = song.timings[nextIdx];
   } else {
-    // Past last line — no countdown
     if (el.classList.contains('visible')) el.classList.remove('visible');
-    lastCountdownVal = -1;
+    countdownTotalGap = 0;
     return;
   }
 
-  const gap = nextTime - t;
-  const THRESHOLD = 4; // Only show countdown for gaps > 4 seconds
+  // Total gap = time from current line's timing (or 0) to next line's timing
+  const gapStart = line === -1 ? 0 : song.timings[line];
+  const totalGap = nextTime - gapStart;
+  const remaining = nextTime - t;
+  const THRESHOLD = 4;
 
-  if (gap > THRESHOLD) {
-    const secs = Math.ceil(gap);
-    if (secs !== lastCountdownVal) {
-      el.textContent = secs;
-      lastCountdownVal = secs;
+  if (totalGap > THRESHOLD && remaining > 0.3) {
+    // Track the full gap duration for bar percentage
+    if (!countdownTotalGap || Math.abs(countdownTotalGap - totalGap) > 1) {
+      countdownTotalGap = totalGap;
     }
+
+    const secs = Math.ceil(remaining);
+    secEl.textContent = secs;
+    barEl.style.width = ((remaining / countdownTotalGap) * 100) + '%';
+
     if (!el.classList.contains('visible')) el.classList.add('visible');
   } else {
     if (el.classList.contains('visible')) el.classList.remove('visible');
-    lastCountdownVal = -1;
+    countdownTotalGap = 0;
   }
 }
 
@@ -1754,7 +1781,10 @@ function renderPerformance() {
 
       <div class="perf-lyrics" id="perf-lyrics-area">
         <div class="perf-status" id="perf-status" style="opacity:${statusText ? '1' : '0'};">${statusText}</div>
-        <div class="perf-countdown" id="perf-countdown"></div>
+        <div class="perf-countdown" id="perf-countdown">
+          <div class="cd-seconds" id="cd-seconds"></div>
+          <div class="cd-bar-track"><div class="cd-bar-fill" id="cd-bar-fill"></div></div>
+        </div>
         <div class="perf-scroll" id="perf-scroll">
           ${linesHtml}
         </div>
