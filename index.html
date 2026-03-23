@@ -1274,23 +1274,34 @@ function bandBeatTap() {
   }
 }
 
+let jumpLockUntil = 0; // prevents audioTick from overriding a manual jump
+
 function jumpToLine(idx) {
   const song = getSong();
   if (!song.timings || idx < 0 || idx >= song.timings.length) return;
 
   const targetTime = song.timings[idx];
 
+  // Lock line position for 500ms so audioTick doesn't override
+  jumpLockUntil = performance.now() + 500;
+
   if (state.bandMode) {
-    // In band mode, set the song time directly
     state.bandSongTime = targetTime;
     state.bandLastFrame = performance.now();
-    state.currentTime = targetTime;
-  } else {
-    // In backing track mode, seek audio to this time
-    const ad = getAudio();
-    const dur = ad ? ad.duration : getTimerDuration();
-    const fraction = targetTime / dur;
-    seekTo(fraction);
+  }
+
+  // Set time directly — works for both audio and timer modes
+  state.currentTime = targetTime;
+  state.timerOffset = targetTime;
+  state.timerStart = performance.now() - (targetTime * 1000);
+
+  // Seek audio if playing
+  const ad = getAudio();
+  if (ad) {
+    ad.pauseOffset = targetTime;
+    if (ad.playing) {
+      startPlayback(ad, targetTime);
+    }
   }
 
   // Force display update
@@ -1593,6 +1604,30 @@ function updatePerfDisplay() {
 
   const song = getSong();
   if (!song.timings || !song.timings.length) return;
+
+  // If a manual jump is active, honour it and skip auto-calculation
+  if (performance.now() < jumpLockUntil) {
+    const line = state.performLine;
+    if (line !== lastRenderedPerfLine) {
+      lastRenderedPerfLine = line;
+      const els = document.querySelectorAll('#perf-scroll .perf-line');
+      for (let i = 0; i < els.length; i++) {
+        const dist = line === -1 ? (i + 1) : (i - line);
+        let cls = 'perf-line';
+        if (els[i].dataset.section === '1') cls += ' section-marker';
+        if (dist < -3) cls += ' distant-past';
+        else if (dist < 0) cls += ' past';
+        else if (dist === 0) cls += ' current';
+        else if (dist === 1) cls += ' next';
+        else if (dist === 2) cls += ' next-2';
+        else if (dist <= 5) cls += ' far';
+        else cls += ' distant-far';
+        els[i].className = cls;
+      }
+      if (line >= 0) scrollPerfTo(line, els);
+    }
+    return;
+  }
 
   // Apply lyrics offset: positive = lyrics arrive earlier, negative = later
   const t = state.currentTime + state.lyricsOffset;
@@ -2648,10 +2683,14 @@ function attachPerformEvents() {
     }, { passive: true });
   }
 
-  // Mouse wheel on lyrics to move lines
+  // Mouse wheel on lyrics to move lines (debounced)
+  let wheelCooldown = false;
   if (lyricsArea) {
     lyricsArea.addEventListener('wheel', (e) => {
       e.preventDefault();
+      if (wheelCooldown) return;
+      wheelCooldown = true;
+      setTimeout(() => { wheelCooldown = false; }, 200);
       const dir = e.deltaY > 0 ? 1 : -1;
       const targetLine = state.performLine + dir;
       if (targetLine >= 0 && targetLine < getLines().length) {
