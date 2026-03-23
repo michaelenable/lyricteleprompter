@@ -580,6 +580,27 @@
     transition: opacity 0.4s ease;
   }
 
+  .perf-countdown {
+    position: absolute;
+    bottom: 100px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'Space Mono', monospace;
+    font-size: 72px;
+    font-weight: 700;
+    color: var(--accent);
+    text-shadow: 0 0 50px var(--accent-glow);
+    pointer-events: none;
+    z-index: 5;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    letter-spacing: 4px;
+  }
+
+  .perf-countdown.visible {
+    opacity: 1;
+  }
+
   /* ============ Responsive: iPad/tablet ============ */
   @media (max-width: 768px) {
     .sidebar { width: 220px; min-width: 220px; }
@@ -1238,6 +1259,55 @@ function updatePerfDisplay() {
   if (line >= 0) scrollPerfTo(line, lineEls);
 }
 
+// Countdown timer — shows seconds until next line during gaps > 3s
+let lastCountdownVal = -1;
+function updatePerfCountdown() {
+  const el = document.getElementById('perf-countdown');
+  if (!el || !state.playing) {
+    if (el && el.classList.contains('visible')) {
+      el.classList.remove('visible');
+      lastCountdownVal = -1;
+    }
+    return;
+  }
+
+  const song = getSong();
+  if (!song.timings || !song.timings.length) return;
+
+  const t = state.currentTime;
+  const line = state.performLine;
+
+  // Find the next line's timing
+  const nextIdx = line + 1;
+  let nextTime;
+  if (line === -1) {
+    // Before first line — count down to first timing
+    nextTime = song.timings[0];
+  } else if (nextIdx < song.timings.length) {
+    nextTime = song.timings[nextIdx];
+  } else {
+    // Past last line — no countdown
+    if (el.classList.contains('visible')) el.classList.remove('visible');
+    lastCountdownVal = -1;
+    return;
+  }
+
+  const gap = nextTime - t;
+  const THRESHOLD = 4; // Only show countdown for gaps > 4 seconds
+
+  if (gap > THRESHOLD) {
+    const secs = Math.ceil(gap);
+    if (secs !== lastCountdownVal) {
+      el.textContent = secs;
+      lastCountdownVal = secs;
+    }
+    if (!el.classList.contains('visible')) el.classList.add('visible');
+  } else {
+    if (el.classList.contains('visible')) el.classList.remove('visible');
+    lastCountdownVal = -1;
+  }
+}
+
 function scrollPerfTo(lineIdx, lineEls) {
   if (!perfScrollReady) return; // Initial positioning not yet done
   const scroll = document.getElementById('perf-scroll');
@@ -1271,7 +1341,10 @@ function audioTick() {
 
   // Always update displays (timer, progress bar) — works for both audio and standalone timer
   updateTimeDisplays();
-  if (state.mode === 'perform') updatePerfDisplay();
+  if (state.mode === 'perform') {
+    updatePerfDisplay();
+    updatePerfCountdown();
+  }
 }
 requestAnimationFrame(audioTick);
 
@@ -1681,6 +1754,7 @@ function renderPerformance() {
 
       <div class="perf-lyrics" id="perf-lyrics-area">
         <div class="perf-status" id="perf-status" style="opacity:${statusText ? '1' : '0'};">${statusText}</div>
+        <div class="perf-countdown" id="perf-countdown"></div>
         <div class="perf-scroll" id="perf-scroll">
           ${linesHtml}
         </div>
